@@ -216,3 +216,51 @@ def compute_expiry_timestamp(product_name: str | None, variant_name: str | None)
         return -1  # Luarmor: -1 = never expires
     
     return -1  # Default to lifetime
+
+
+async def get_user_info(discord_id: int) -> Optional[Dict[str, Any]]:
+    """Get full Luarmor user info including expiry."""
+    if not LUARMOR_API_KEY or not LUARMOR_PROJECT_ID:
+        return None
+
+    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
+    params = {"discord_id": str(discord_id)}
+
+    timeout = ClientTimeout(total=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        data = await _request_with_retry("GET", url, session, params=params)
+        if data and data.get("users"):
+            return data["users"][0]
+        return None
+
+
+async def add_time_to_user(discord_id: int, days: int) -> Optional[Dict[str, Any]]:
+    """Add days to a user's expiry. Returns updated user info or None."""
+    user = await get_user_info(discord_id)
+    if not user:
+        return None
+    
+    user_key = user.get("user_key")
+    current_expire = user.get("auth_expire")
+    
+    # If lifetime (-1 or None), can't add time
+    if current_expire is None or current_expire == -1:
+        return {"error": "lifetime", "user": user}
+    
+    # Calculate new expiry
+    now = int(datetime.now(timezone.utc).timestamp())
+    
+    # If already expired, start from now
+    if current_expire < now:
+        new_expire = now + (days * 86400)
+    else:
+        new_expire = current_expire + (days * 86400)
+    
+    success = await update_user_expiry(user_key, new_expire)
+    if success:
+        return {
+            "user_key": user_key,
+            "old_expire": current_expire,
+            "new_expire": new_expire,
+        }
+    return None

@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 
 from utils.supabase import get_supabase
 from commands.tickets import create_or_get_ticket_channel, CloseTicketView
-from utils.luarmor import create_or_update_user, compute_expiry_timestamp
+from utils.luarmor import create_or_update_user, compute_expiry_timestamp, get_user_info, add_time_to_user
 
 # -----------------------------
 # CONFIG
@@ -336,6 +336,93 @@ class Shop(commands.Cog):
         embed.set_footer(text="Fix-It-Up Script • Premium Access")
 
         await channel.send(embed=embed, view=ShopView(self.bot))
+
+    @discord.app_commands.command(name="addtime", description="Add days to a user's whitelist")
+    @discord.app_commands.describe(user="The user to add time to", days="Number of days to add")
+    async def addtime(self, interaction: Interaction, user: discord.Member, days: int):
+        # Staff check
+        if not any(role.id in STAFF_ROLE_IDS for role in interaction.user.roles):
+            await interaction.response.send_message("You don't have permission to use this.", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        result = await add_time_to_user(user.id, days)
+        
+        if not result:
+            await interaction.followup.send(f"{user.mention} doesn't have a whitelist key.", ephemeral=True)
+            return
+        
+        if result.get("error") == "lifetime":
+            await interaction.followup.send(f"{user.mention} has a lifetime key - no expiry to extend.", ephemeral=True)
+            return
+        
+        old_ts = result["old_expire"]
+        new_ts = result["new_expire"]
+        
+        embed = discord.Embed(title="Time Added", color=discord.Color.green())
+        embed.add_field(name="User", value=f"{user.mention}", inline=True)
+        embed.add_field(name="Days Added", value=f"{days}", inline=True)
+        embed.add_field(name="Old Expiry", value=f"<t:{old_ts}:F>", inline=False)
+        embed.add_field(name="New Expiry", value=f"<t:{new_ts}:F>", inline=False)
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        # Log it
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="Time Added to Key", color=discord.Color.blue())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Days Added", value=f"{days}", inline=True)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            log_embed.add_field(name="New Expiry", value=f"<t:{new_ts}:F>", inline=False)
+            await log_channel.send(embed=log_embed)
+
+    @discord.app_commands.command(name="keytime", description="Check remaining time on a whitelist key")
+    @discord.app_commands.describe(user="The user to check (leave empty to check yourself)")
+    async def keytime(self, interaction: Interaction, user: discord.Member = None):
+        await interaction.response.defer(ephemeral=True)
+        
+        target = user or interaction.user
+        
+        # Non-staff can only check their own key
+        is_staff = any(role.id in STAFF_ROLE_IDS for role in interaction.user.roles)
+        if user and user.id != interaction.user.id and not is_staff:
+            await interaction.followup.send("You can only check your own key.", ephemeral=True)
+            return
+        
+        user_info = await get_user_info(target.id)
+        
+        if not user_info:
+            await interaction.followup.send(f"{'You don' if target == interaction.user else f'{target.mention} doesn'}'t have a whitelist key.", ephemeral=True)
+            return
+        
+        user_key = user_info.get("user_key")
+        auth_expire = user_info.get("auth_expire")
+        
+        embed = discord.Embed(title="Whitelist Key Info", color=discord.Color(EMBED_COLOR))
+        embed.add_field(name="User", value=f"{target.mention}", inline=True)
+        
+        if is_staff:
+            embed.add_field(name="Key", value=f"||`{user_key}`||", inline=True)
+        
+        if auth_expire is None or auth_expire == -1:
+            embed.add_field(name="Expires", value="**Lifetime** (Never)", inline=False)
+        else:
+            now = int(datetime.now(timezone.utc).timestamp())
+            if auth_expire < now:
+                embed.add_field(name="Status", value="**EXPIRED**", inline=False)
+                embed.add_field(name="Expired On", value=f"<t:{auth_expire}:F>", inline=False)
+                embed.color = discord.Color.red()
+            else:
+                remaining_seconds = auth_expire - now
+                days = remaining_seconds // 86400
+                hours = (remaining_seconds % 86400) // 3600
+                
+                embed.add_field(name="Expires", value=f"<t:{auth_expire}:F>", inline=False)
+                embed.add_field(name="Time Remaining", value=f"**{days}** days, **{hours}** hours", inline=False)
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
