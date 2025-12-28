@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 import traceback
 
 from utils.supabase import get_supabase
+from utils.luarmor import create_luarmor_key, get_user_by_discord, compute_expiry_timestamp
 
 # -----------------------------
 # CONFIG
@@ -126,6 +127,25 @@ class InvoiceRedeem(commands.Cog):
             if role and role not in user.roles:
                 await user.add_roles(role, reason=f"SellAuth redeem {invoice_id}")
 
+            luarmor_key = None
+            luarmor_expiry = compute_expiry_timestamp(product_name, variant_name)
+            
+            # Check if user already has a Luarmor key
+            existing_luarmor = await get_user_by_discord(str(user.id))
+            
+            if existing_luarmor:
+                # User already has a key, store it
+                luarmor_key = existing_luarmor.get("user_key")
+            else:
+                # Create new Luarmor key with Discord ID and expiry
+                result = await create_luarmor_key(
+                    discord_id=str(user.id),
+                    auth_expire=luarmor_expiry,
+                    note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
+                )
+                if result:
+                    luarmor_key = result.get("user_key")
+
             # Save redemption
             supabase.table("role_redeem").insert({
                 "invoice_id": invoice_id,
@@ -137,6 +157,8 @@ class InvoiceRedeem(commands.Cog):
                 "variant_name": variant_name,
                 "expires_at": expires_at,
                 "redeemed_at": datetime.now(timezone.utc).isoformat(),
+                "luarmor_key": luarmor_key,  # Store Luarmor key
+                "whitelisted": True if luarmor_key else False,
             }).execute()
 
             # Log embed
@@ -147,6 +169,11 @@ class InvoiceRedeem(commands.Cog):
                 embed.add_field(name="Product", value=product_name, inline=True)
                 embed.add_field(name="Variant", value=variant_name, inline=True)
                 embed.add_field(name="Invoice ID", value=f"`{invoice_id}`", inline=False)
+                
+                if luarmor_key:
+                    embed.add_field(name="Luarmor Key", value=f"||`{luarmor_key}`||", inline=False)
+                else:
+                    embed.add_field(name="Luarmor", value="⚠️ Key creation failed", inline=False)
 
                 if expires_at:
                     ts = int(datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp())
@@ -156,10 +183,18 @@ class InvoiceRedeem(commands.Cog):
 
                 await log.send(embed=embed)
 
-            await interaction.followup.send(
-                f"✅ Order verified and access granted to {user.mention}.",
-                ephemeral=True
-            )
+            if luarmor_key:
+                await interaction.followup.send(
+                    f"✅ Order verified and access granted to {user.mention}.\n"
+                    f"🔑 Luarmor key created - HWID will auto-link on first script execution.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"✅ Order verified and access granted to {user.mention}.\n"
+                    f"⚠️ Luarmor key creation failed - check API config.",
+                    ephemeral=True
+                )
 
         except Exception as e:
             traceback.print_exc()

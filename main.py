@@ -19,8 +19,6 @@ EXTENSIONS = [
     "commands.shop",
     "commands.checkorder",
     "commands.tickets",
-    # If you still want invoice_redeem loaded, uncomment:
-    # "commands.invoice_redeem",
 ]
 
 @bot.event
