@@ -116,22 +116,59 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
 
             member = guild.get_member(interaction.user.id) or await guild.fetch_member(interaction.user.id)
 
-            # Already redeemed?
-            existing = (
+            existing_invoice = (
                 supabase.table("role_redeem")
-                .select("id")
+                .select("id, redeemed_by")
                 .eq("invoice_id", invoice_id)
                 .limit(1)
                 .execute()
             )
-            if existing.data:
-                await interaction.followup.send("This order has already been redeemed.", ephemeral=True)
+            if existing_invoice.data:
+                redeemed_by = existing_invoice.data[0].get("redeemed_by")
+                await interaction.followup.send(
+                    f"This order has already been redeemed by <@{redeemed_by}>.", 
+                    ephemeral=True
+                )
                 return
 
             invoice = await fetch_invoice(invoice_id)
-            if not invoice or not invoice_is_paid(invoice):
-                await interaction.followup.send("Order is invalid or unpaid.", ephemeral=True)
+            if not invoice:
+                await interaction.followup.send(
+                    "Order not found. Please check your invoice ID and try again.", 
+                    ephemeral=True
+                )
                 return
+            
+            if not invoice_is_paid(invoice):
+                status = invoice.get("status", "unknown")
+                refunded = invoice.get("refunded", False)
+                cancelled = invoice.get("cancelled", False)
+                
+                if refunded:
+                    await interaction.followup.send("This order has been refunded.", ephemeral=True)
+                elif cancelled:
+                    await interaction.followup.send("This order has been cancelled.", ephemeral=True)
+                else:
+                    await interaction.followup.send(f"Order status: {status}. Payment not completed.", ephemeral=True)
+                return
+
+            created_at = invoice.get("created_at")
+            if created_at:
+                try:
+                    # SellAuth returns unix timestamp
+                    order_date = datetime.fromtimestamp(int(created_at), tz=timezone.utc)
+                    days_old = (datetime.now(timezone.utc) - order_date).days
+                    
+                    # Only allow auto-redeem for orders less than 3 days old
+                    if days_old > 3:
+                        await interaction.followup.send(
+                            f"This order is {days_old} days old and cannot be auto-redeemed.\n\n"
+                            "Please open a ticket for manual verification and a staff member will assist you.",
+                            ephemeral=True
+                        )
+                        return
+                except Exception as e:
+                    print(f"[DEBUG] Could not parse order date: {e}")
 
             product_name, variant_name = extract_product_and_variant(invoice)
             expires_at = compute_expires_at_from_variant(variant_name)
@@ -280,27 +317,20 @@ class Shop(commands.Cog):
             description=(
                 f"{SHOP_URL}\n\n"
                 "**How it works:**\n"
-                "1) Purchase premium\n"
-                "2) Redeem Order ID\n"
-                "3) Receive your key & Premium role\n"
-                "4) Add key to script and enjoy!"
+                "1) Purchase premium via card/crypto\n"
+                "2) Click **Redeem Order ID** and enter your invoice ID\n"
+                "3) Automatically receive your key, Premium role & whitelist\n"
+                "4) Add key to script and enjoy!\n\n"
+                "*Card & crypto payments are instant and automatic!*\n\n"
+                "**Paying with Robux?**\n"
+                "Open a ticket and a staff member will assist you."
             ),
             color=discord.Color(EMBED_COLOR),
         )
 
-        embed.add_field(name="Lifetime", value="**$25 USD**\n**4,000 Robux**", inline=True)
-        embed.add_field(name="Month", value="**$10 USD**\n**1,700 Robux**", inline=True)
-        embed.add_field(name="Week", value="**$5 USD**\n**750 Robux**", inline=True)
-
-        embed.add_field(
-            name="Roblox Gift Cards",
-            value=(
-                "Accepted via ticket only\n"
-                "**Must be $5 higher than product price**\n"
-                "Example: $25 product → $30 card"
-            ),
-            inline=False,
-        )
+        embed.add_field(name="Lifetime", value="**$25 USD**\n3,500 R$", inline=True)
+        embed.add_field(name="Month", value="**$10 USD**\n1,400 R$", inline=True)
+        embed.add_field(name="Week", value="**$5 USD**\n700 R$", inline=True)
 
         embed.set_author(name="Script Union Shop", icon_url=BOT_LOGO_URL)
         embed.set_thumbnail(url=BOT_LOGO_URL)
