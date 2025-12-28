@@ -344,8 +344,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             if luarmor_key:
                 await interaction.followup.send(
                     "**Order Confirmed - You're all set!**\n\n"
-                    f"Your key: ||`{luarmor_key}`||\n\n"
-                    "Your HWID will auto-link on first execution.\n\n"
+                    f"Head to <#1444457969407496352> and press **Get Script** to get started.\n\n"
                     f"Need help? Open a ticket!{referral_bonus_msg}",
                     ephemeral=True,
                 )
