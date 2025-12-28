@@ -319,8 +319,7 @@ class Shop(commands.Cog):
                 "**How it works:**\n"
                 "1) Purchase premium via card/crypto\n"
                 "2) Click **Redeem Order ID** and enter your invoice ID\n"
-                "3) Automatically receive your key, Premium role & whitelist\n"
-                "4) Add key to script and enjoy!\n\n"
+                "3) Automatically receive your key, Premium role & whitelist!\n\n"
                 "*Card & crypto payments are instant and automatic!*\n\n"
                 "**Paying with Robux?**\n"
                 "Open a ticket and a staff member will assist you."
@@ -328,8 +327,8 @@ class Shop(commands.Cog):
             color=discord.Color(EMBED_COLOR),
         )
 
-        embed.add_field(name="Lifetime", value="**$25 USD**\n3,500 R$", inline=True)
-        embed.add_field(name="Month", value="**$10 USD**\n1,400 R$", inline=True)
+        embed.add_field(name="Lifetime", value="**$25 USD**\n4,000 R$", inline=True)
+        embed.add_field(name="Month", value="**$10 USD**\n1,700 R$", inline=True)
         embed.add_field(name="Week", value="**$5 USD**\n700 R$", inline=True)
 
         embed.set_author(name="Script Union Shop", icon_url=BOT_LOGO_URL)
