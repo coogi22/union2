@@ -213,6 +213,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             referral_bonus_msg = ""
             if ref_code:
                 try:
+                    print(f"[REFERRAL] Processing code: {ref_code}")
                     # Check if referral code exists
                     referral_data = (
                         supabase.table("referrals")
@@ -226,6 +227,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                         referral = referral_data.data[0]
                         referrer_id = referral["referrer_discord_id"]
                         bonus_days = referral.get("bonus_days_per_referral", 3)
+                        print(f"[REFERRAL] Found code for referrer {referrer_id}, bonus days: {bonus_days}")
                         
                         # Can't use your own code
                         if referrer_id != member.id:
@@ -239,15 +241,30 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                             )
                             
                             if not already_used.data:
-                                # Add bonus days to referrer
+                                print(f"[REFERRAL] Adding {bonus_days} days to referrer {referrer_id}")
+                                
+                                # Try to add bonus days to referrer
                                 referrer_result = await add_time_to_user(referrer_id, bonus_days)
+                                
+                                bonus_applied = False
+                                if referrer_result:
+                                    if referrer_result.get("error") == "lifetime":
+                                        # Referrer has lifetime, can't add time but still counts
+                                        print(f"[REFERRAL] Referrer has lifetime, no bonus needed")
+                                        bonus_applied = True
+                                    elif referrer_result.get("new_expire"):
+                                        print(f"[REFERRAL] ✅ Added bonus days, new expire: {referrer_result.get('new_expire')}")
+                                        bonus_applied = True
+                                else:
+                                    # Referrer not in Luarmor - they might need to redeem first
+                                    print(f"[REFERRAL] Referrer not found in Luarmor")
                                 
                                 # Log the referral use
                                 supabase.table("referral_uses").insert({
                                     "referral_code": ref_code,
                                     "referrer_discord_id": referrer_id,
                                     "referred_discord_id": member.id,
-                                    "bonus_days_awarded": bonus_days if referrer_result else 0,
+                                    "bonus_days_awarded": bonus_days if bonus_applied else 0,
                                 }).execute()
                                 
                                 # Increment referral count
@@ -255,19 +272,27 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                                     "uses": referral["uses"] + 1
                                 }).eq("referral_code", ref_code).execute()
                                 
-                                if referrer_result:
-                                    referral_bonus_msg = f"\n\nReferral code applied! <@{referrer_id}> received {bonus_days} bonus days."
+                                if bonus_applied:
+                                    referral_bonus_msg = f"\n\n✅ Referral code applied! <@{referrer_id}> received {bonus_days} bonus days."
                                     
                                     # DM referrer about the bonus
                                     try:
                                         referrer = await guild.fetch_member(referrer_id)
                                         if referrer:
                                             await referrer.send(
-                                                f"Someone used your referral code `{ref_code}`!\n"
+                                                f"🎉 Someone used your referral code `{ref_code}`!\n"
                                                 f"You received **{bonus_days} bonus days** added to your subscription."
                                             )
-                                    except:
-                                        pass
+                                    except Exception as dm_err:
+                                        print(f"[REFERRAL] Could not DM referrer: {dm_err}")
+                                else:
+                                    referral_bonus_msg = f"\n\n⚠️ Referral code applied, but <@{referrer_id}> doesn't have an active subscription to add days to."
+                            else:
+                                print(f"[REFERRAL] User {member.id} already used a referral code")
+                        else:
+                            print(f"[REFERRAL] User tried to use their own code")
+                    else:
+                        print(f"[REFERRAL] Code not found: {ref_code}")
                 except Exception as e:
                     print(f"[REFERRAL ERROR] {e}")
 
