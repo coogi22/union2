@@ -1,0 +1,66 @@
+===========================================
+        SHOPBOT VPS COMMAND REFERENCE
+===========================================
+
+--- CHECK BOT STATUS ---
+sudo systemctl status shopbot
+
+--- VIEW LIVE LOGS ---
+sudo journalctl -u shopbot -f
+(Press Ctrl+C to exit)
+
+--- VIEW LAST 50 LOG LINES ---
+sudo journalctl -u shopbot -n 50 --no-pager
+
+--- RESTART BOT ---
+sudo systemctl restart shopbot
+
+--- STOP BOT ---
+sudo systemctl stop shopbot
+
+--- START BOT ---
+sudo systemctl start shopbot
+
+--- UPDATE BOT (after pushing to GitHub) ---
+cd ~/union2
+git pull
+pip install -r requirements.txt
+sudo systemctl restart shopbot
+sudo systemctl restart whitelist-api
+
+--- EDIT .ENV FILE ---
+cd ~/union2
+nano .env
+(Ctrl+X, then Y, then Enter to save)
+
+--- RECONNECT TO YOUR DROPLET ---
+ssh root@YOUR_IP_ADDRESS
+
+===========================================
+        WHITELIST API COMMANDS
+===========================================
+
+--- CHECK API STATUS ---
+sudo systemctl status whitelist-api
+
+--- VIEW API LOGS ---
+sudo journalctl -u whitelist-api -f
+
+--- RESTART API ---
+sudo systemctl restart whitelist-api
+
+--- STOP API ---
+sudo systemctl stop whitelist-api
+
+--- START API ---
+sudo systemctl start whitelist-api
+
+--- TEST API IS WORKING ---
+curl http://localhost:5000/health
+
+--- FIRST TIME API SETUP ---
+mkdir -p ~/union2/api
+sudo cp ~/union2/whitelist-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable whitelist-api
+sudo systemctl start whitelist-api
