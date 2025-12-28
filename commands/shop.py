@@ -99,6 +99,13 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
         required=True,
         max_length=128,
     )
+    
+    referral_code = ui.TextInput(
+        label="Referral Code (Optional)",
+        placeholder="Enter a referral code if you have one",
+        required=False,
+        max_length=32,
+    )
 
     def __init__(self, bot: commands.Bot):
         super().__init__()
@@ -106,6 +113,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
 
     async def on_submit(self, interaction: Interaction):
         invoice_id = self.order_id.value.strip()
+        ref_code = self.referral_code.value.strip().upper() if self.referral_code.value else None
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         try:
@@ -155,11 +163,9 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             created_at = invoice.get("created_at")
             if created_at:
                 try:
-                    # SellAuth returns unix timestamp
                     order_date = datetime.fromtimestamp(int(created_at), tz=timezone.utc)
                     days_old = (datetime.now(timezone.utc) - order_date).days
                     
-                    # Only allow auto-redeem for orders less than 3 days old
                     if days_old > 3:
                         await interaction.followup.send(
                             f"This order is {days_old} days old and cannot be auto-redeemed.\n\n"
@@ -173,7 +179,6 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             product_name, variant_name = extract_product_and_variant(invoice)
             expires_at = compute_expires_at_from_variant(variant_name)
 
-            # Give role
             role = guild.get_role(ACCESS_ROLE_ID)
             if not role:
                 await interaction.followup.send("Premium role not found. Contact staff.", ephemeral=True)
@@ -205,6 +210,67 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             except Exception as e:
                 print(f"[LUARMOR ERROR] Failed to whitelist {member.id}: {e}")
 
+            referral_bonus_msg = ""
+            if ref_code:
+                try:
+                    # Check if referral code exists
+                    referral_data = (
+                        supabase.table("referrals")
+                        .select("*")
+                        .eq("referral_code", ref_code)
+                        .limit(1)
+                        .execute()
+                    )
+                    
+                    if referral_data.data:
+                        referral = referral_data.data[0]
+                        referrer_id = referral["referrer_discord_id"]
+                        bonus_days = referral.get("bonus_days_per_referral", 3)
+                        
+                        # Can't use your own code
+                        if referrer_id != member.id:
+                            # Check if this user already used a referral code before
+                            already_used = (
+                                supabase.table("referral_uses")
+                                .select("id")
+                                .eq("referred_discord_id", member.id)
+                                .limit(1)
+                                .execute()
+                            )
+                            
+                            if not already_used.data:
+                                # Add bonus days to referrer
+                                referrer_result = await add_time_to_user(referrer_id, bonus_days)
+                                
+                                # Log the referral use
+                                supabase.table("referral_uses").insert({
+                                    "referral_code": ref_code,
+                                    "referrer_discord_id": referrer_id,
+                                    "referred_discord_id": member.id,
+                                    "bonus_days_awarded": bonus_days if referrer_result else 0,
+                                }).execute()
+                                
+                                # Increment referral count
+                                supabase.table("referrals").update({
+                                    "uses": referral["uses"] + 1
+                                }).eq("referral_code", ref_code).execute()
+                                
+                                if referrer_result:
+                                    referral_bonus_msg = f"\n\nReferral code applied! <@{referrer_id}> received {bonus_days} bonus days."
+                                    
+                                    # DM referrer about the bonus
+                                    try:
+                                        referrer = await guild.fetch_member(referrer_id)
+                                        if referrer:
+                                            await referrer.send(
+                                                f"Someone used your referral code `{ref_code}`!\n"
+                                                f"You received **{bonus_days} bonus days** added to your subscription."
+                                            )
+                                    except:
+                                        pass
+                except Exception as e:
+                    print(f"[REFERRAL ERROR] {e}")
+
             # Save redemption
             supabase.table("role_redeem").insert({
                 "role_id": int(ACCESS_ROLE_ID),
@@ -218,6 +284,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                 "redeemed_at": datetime.now(timezone.utc).isoformat(),
                 "luarmor_key": luarmor_key,
                 "whitelisted": True if luarmor_key else False,
+                "referral_code": ref_code,  # Store referral code used
             }).execute()
 
             # Log embed
@@ -243,6 +310,9 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                         embed.add_field(name="Expires", value=f"`{expires_at}`", inline=False)
                 else:
                     embed.add_field(name="Expires", value="Lifetime", inline=False)
+                
+                if ref_code:
+                    embed.add_field(name="Referral Code Used", value=f"`{ref_code}`", inline=False)
 
                 await log_channel.send(embed=embed)
 
@@ -251,13 +321,13 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                     "**Order Confirmed - You're all set!**\n\n"
                     f"Your key: ||`{luarmor_key}`||\n\n"
                     "Your HWID will auto-link on first execution.\n\n"
-                    "Need help? Open a ticket!",
+                    f"Need help? Open a ticket!{referral_bonus_msg}",
                     ephemeral=True,
                 )
             else:
                 await interaction.followup.send(
                     "**Order Confirmed** - Premium role applied.\n\n"
-                    "Auto-whitelist failed. Please open a ticket so staff can whitelist you manually.",
+                    f"Auto-whitelist failed. Please open a ticket so staff can whitelist you manually.{referral_bonus_msg}",
                     ephemeral=True,
                 )
         

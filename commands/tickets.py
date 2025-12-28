@@ -1,7 +1,7 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks  # Added tasks import
 from discord import ui, Interaction
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import io
 
 from utils.supabase import get_supabase
@@ -18,6 +18,8 @@ STAFF_ROLE_IDS = {
 }
 
 EMBED_COLOR = 0x489BF3
+
+TICKET_AUTO_CLOSE_DAYS = 3  # Close inactive tickets after 3 days
 
 supabase = get_supabase()
 
@@ -296,6 +298,120 @@ class Tickets(commands.Cog):
         self.bot = bot
         # Register persistent view so old buttons keep working after restart
         self.bot.add_view(CloseTicketView())
+        self.auto_close_tickets.start()  # Start auto-close task
+
+    def cog_unload(self):
+        self.auto_close_tickets.cancel()  # Stop task on unload
+
+    @tasks.loop(hours=1)
+    async def auto_close_tickets(self):
+        """Automatically close tickets inactive for X days"""
+        try:
+            guild = self.bot.get_guild(1345153296360542271)
+            if not guild:
+                return
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=TICKET_AUTO_CLOSE_DAYS)
+
+            # Get open tickets
+            open_tickets = supabase.table("tickets").select(
+                "id, channel_id, opener_id, last_activity"
+            ).eq("status", "open").execute()
+
+            if not open_tickets.data:
+                return
+
+            for ticket in open_tickets.data:
+                channel_id = ticket.get("channel_id")
+                if not channel_id:
+                    continue
+
+                channel = guild.get_channel(int(channel_id))
+                if not isinstance(channel, discord.TextChannel):
+                    # Channel deleted, mark ticket as closed
+                    supabase.table("tickets").update({
+                        "status": "closed",
+                        "closed_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("id", ticket["id"]).execute()
+                    continue
+
+                # Check last message time
+                last_activity = None
+                async for msg in channel.history(limit=1):
+                    last_activity = msg.created_at
+
+                if last_activity and last_activity.replace(tzinfo=timezone.utc) < cutoff:
+                    # Send warning then close
+                    try:
+                        await channel.send(
+                            f"This ticket has been inactive for {TICKET_AUTO_CLOSE_DAYS} days and will be closed automatically."
+                        )
+                    except:
+                        pass
+
+                    # Generate transcript
+                    transcript_lines = []
+                    transcript_lines.append(f"{'='*60}")
+                    transcript_lines.append(f"TICKET TRANSCRIPT: {channel.name} (AUTO-CLOSED)")
+                    transcript_lines.append(f"Closed At: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                    transcript_lines.append(f"Reason: Inactive for {TICKET_AUTO_CLOSE_DAYS} days")
+                    transcript_lines.append(f"{'='*60}\n")
+
+                    messages = []
+                    async for msg in channel.history(limit=None, oldest_first=True):
+                        messages.append(msg)
+
+                    for msg in messages:
+                        timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                        author = f"{msg.author} ({msg.author.id})"
+                        content = msg.content or "[No text content]"
+                        transcript_lines.append(f"[{timestamp}] {author}")
+                        transcript_lines.append(f"{content}")
+                        if msg.attachments:
+                            for att in msg.attachments:
+                                transcript_lines.append(f"  [Attachment: {att.filename}]")
+                        transcript_lines.append("")
+
+                    transcript_text = "\n".join(transcript_lines)
+                    transcript_file = io.BytesIO(transcript_text.encode('utf-8'))
+
+                    # Update DB
+                    supabase.table("tickets").update({
+                        "status": "closed",
+                        "closed_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("id", ticket["id"]).execute()
+
+                    # Log
+                    log_ch = guild.get_channel(LOG_CHANNEL_ID)
+                    if log_ch:
+                        opener_id = ticket.get("opener_id")
+                        embed = discord.Embed(
+                            title="Ticket Auto-Closed",
+                            description=f"Inactive for {TICKET_AUTO_CLOSE_DAYS} days",
+                            color=discord.Color.orange()
+                        )
+                        embed.add_field(name="Ticket", value=f"`{channel.name}`", inline=True)
+                        embed.add_field(name="Messages", value=f"`{len(messages)}`", inline=True)
+                        embed.add_field(name="Opened By", value=f"<@{opener_id}>", inline=False)
+
+                        transcript_file.seek(0)
+                        await log_ch.send(
+                            embed=embed,
+                            file=discord.File(transcript_file, filename=f"transcript-{channel.name}.txt")
+                        )
+
+                    # Delete channel
+                    try:
+                        await channel.delete(reason="Auto-closed due to inactivity")
+                    except:
+                        pass
+
+        except Exception as e:
+            print(f"[AUTO-CLOSE ERROR] {e}")
+
+    @auto_close_tickets.before_loop
+    async def before_auto_close(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot: commands.Bot):

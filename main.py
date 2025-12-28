@@ -19,6 +19,7 @@ EXTENSIONS = [
     "commands.shop",
     "commands.checkorder",
     "commands.tickets",
+    "commands.admin",  # Added admin cog to extensions list
 ]
 
 @bot.event

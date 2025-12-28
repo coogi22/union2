@@ -264,3 +264,16 @@ async def add_time_to_user(discord_id: int, days: int) -> Optional[Dict[str, Any
             "new_expire": new_expire,
         }
     return None
+
+
+async def delete_user_by_discord(discord_id: int) -> bool:
+    """Delete a Luarmor user by their Discord ID."""
+    user = await get_user_by_discord(discord_id)
+    if not user:
+        return False
+    
+    user_key = user.get("user_key")
+    if not user_key:
+        return False
+    
+    return await delete_user(user_key)
