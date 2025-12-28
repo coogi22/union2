@@ -108,118 +108,131 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
         invoice_id = self.order_id.value.strip()
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        guild = interaction.guild
-        if not guild:
-            await interaction.followup.send("This must be used in the server.", ephemeral=True)
-            return
-
-        member = guild.get_member(interaction.user.id) or await guild.fetch_member(interaction.user.id)
-
-        # Already redeemed?
-        existing = (
-            supabase.table("role_redeem")
-            .select("id")
-            .eq("invoice_id", invoice_id)
-            .limit(1)
-            .execute()
-        )
-        if existing.data:
-            await interaction.followup.send("This order has already been redeemed.", ephemeral=True)
-            return
-
-        invoice = await fetch_invoice(invoice_id)
-        if not invoice or not invoice_is_paid(invoice):
-            await interaction.followup.send("Order is invalid or unpaid.", ephemeral=True)
-            return
-
-        product_name, variant_name = extract_product_and_variant(invoice)
-        expires_at = compute_expires_at_from_variant(variant_name)
-
-        # Give role
-        role = guild.get_role(ACCESS_ROLE_ID)
-        if not role:
-            await interaction.followup.send("Premium role not found. Contact staff.", ephemeral=True)
-            return
-
         try:
-            if role not in member.roles:
-                await member.add_roles(role, reason=f"SellAuth redeem {invoice_id}")
-        except discord.Forbidden:
-            await interaction.followup.send(
-                "I can’t assign roles. Make sure my role is above the Premium role and I have Manage Roles.",
-                ephemeral=True
+            guild = interaction.guild
+            if not guild:
+                await interaction.followup.send("This must be used in the server.", ephemeral=True)
+                return
+
+            member = guild.get_member(interaction.user.id) or await guild.fetch_member(interaction.user.id)
+
+            # Already redeemed?
+            existing = (
+                supabase.table("role_redeem")
+                .select("id")
+                .eq("invoice_id", invoice_id)
+                .limit(1)
+                .execute()
             )
-            return
+            if existing.data:
+                await interaction.followup.send("This order has already been redeemed.", ephemeral=True)
+                return
 
-        luarmor_key = None
-        luarmor_expiry = None
-        
-        luarmor_result = await create_or_update_user(
-            discord_id=member.id,
-            plan_name=variant_name,
-            note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
-        )
-        
-        if luarmor_result:
-            luarmor_key = luarmor_result.get("user_key")
-            luarmor_expiry = luarmor_result.get("expires_at")
+            invoice = await fetch_invoice(invoice_id)
+            if not invoice or not invoice_is_paid(invoice):
+                await interaction.followup.send("Order is invalid or unpaid.", ephemeral=True)
+                return
 
-        # Save redemption
-        supabase.table("role_redeem").insert({
-            "role_id": int(ACCESS_ROLE_ID),
-            "redeemed": True,
-            "redeemed_by": int(member.id),
-            "invoice_id": invoice_id,
-            "product_name": product_name,
-            "variant_name": variant_name,
-            "discord_id": int(member.id),
-            "expires_at": expires_at,
-            "redeemed_at": datetime.now(timezone.utc).isoformat(),
-            "luarmor_key": luarmor_key,
-            "whitelisted": True if luarmor_key else False,
-        }).execute()
+            product_name, variant_name = extract_product_and_variant(invoice)
+            expires_at = compute_expires_at_from_variant(variant_name)
 
-        # Log embed
-        log_channel = guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            embed = discord.Embed(title="Order Redeemed", color=discord.Color.green())
-            embed.add_field(name="User", value=f"<@{member.id}>\n`{member.id}`", inline=False)
-            embed.add_field(name="Product", value=product_name, inline=True)
-            embed.add_field(name="Variant", value=variant_name, inline=True)
-            embed.add_field(name="Invoice ID", value=f"`{invoice_id}`", inline=False)
+            # Give role
+            role = guild.get_role(ACCESS_ROLE_ID)
+            if not role:
+                await interaction.followup.send("Premium role not found. Contact staff.", ephemeral=True)
+                return
+
+            try:
+                if role not in member.roles:
+                    await member.add_roles(role, reason=f"SellAuth redeem {invoice_id}")
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "I can't assign roles. Make sure my role is above the Premium role and I have Manage Roles.",
+                    ephemeral=True
+                )
+                return
+
+            luarmor_key = None
+            luarmor_expiry = None
             
+            try:
+                luarmor_result = await create_or_update_user(
+                    discord_id=member.id,
+                    plan_name=variant_name,
+                    note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
+                )
+                
+                if luarmor_result:
+                    luarmor_key = luarmor_result.get("user_key")
+                    luarmor_expiry = luarmor_result.get("expires_at")
+            except Exception as e:
+                print(f"[LUARMOR ERROR] Failed to whitelist {member.id}: {e}")
+
+            # Save redemption
+            supabase.table("role_redeem").insert({
+                "role_id": int(ACCESS_ROLE_ID),
+                "redeemed": True,
+                "redeemed_by": int(member.id),
+                "invoice_id": invoice_id,
+                "product_name": product_name,
+                "variant_name": variant_name,
+                "discord_id": int(member.id),
+                "expires_at": expires_at,
+                "redeemed_at": datetime.now(timezone.utc).isoformat(),
+                "luarmor_key": luarmor_key,
+                "whitelisted": True if luarmor_key else False,
+            }).execute()
+
+            # Log embed
+            log_channel = guild.get_channel(LOG_CHANNEL_ID)
+            if log_channel:
+                embed = discord.Embed(title="Order Redeemed", color=discord.Color.green())
+                embed.add_field(name="User", value=f"<@{member.id}>\n`{member.id}`", inline=False)
+                embed.add_field(name="Product", value=product_name, inline=True)
+                embed.add_field(name="Variant", value=variant_name, inline=True)
+                embed.add_field(name="Invoice ID", value=f"`{invoice_id}`", inline=False)
+                
+                if luarmor_key:
+                    embed.add_field(name="Luarmor Key", value=f"||`{luarmor_key}`||", inline=False)
+                    embed.add_field(name="Whitelist Status", value="Auto-whitelisted", inline=False)
+                else:
+                    embed.add_field(name="Whitelist Status", value="Failed - manual whitelist needed", inline=False)
+
+                if expires_at:
+                    try:
+                        ts = int(datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp())
+                        embed.add_field(name="Expires", value=f"<t:{ts}:F>", inline=False)
+                    except Exception:
+                        embed.add_field(name="Expires", value=f"`{expires_at}`", inline=False)
+                else:
+                    embed.add_field(name="Expires", value="Lifetime", inline=False)
+
+                await log_channel.send(embed=embed)
+
             if luarmor_key:
-                embed.add_field(name="Luarmor Key", value=f"||`{luarmor_key}`||", inline=False)
-                embed.add_field(name="Whitelist Status", value="✅ Auto-whitelisted", inline=False)
+                await interaction.followup.send(
+                    "**Order Confirmed - You're all set!**\n\n"
+                    f"Your key: ||`{luarmor_key}`||\n\n"
+                    "Your HWID will auto-link on first execution.\n\n"
+                    "Need help? Open a ticket!",
+                    ephemeral=True,
+                )
             else:
-                embed.add_field(name="Whitelist Status", value="⚠️ Failed - manual whitelist needed", inline=False)
-
-            if expires_at:
-                try:
-                    ts = int(datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp())
-                    embed.add_field(name="Expires", value=f"<t:{ts}:F>", inline=False)
-                except Exception:
-                    embed.add_field(name="Expires", value=f"`{expires_at}`", inline=False)
-            else:
-                embed.add_field(name="Expires", value="Lifetime", inline=False)
-
-            await log_channel.send(embed=embed)
-
-        if luarmor_key:
-            await interaction.followup.send(
-                "✅ **Order confirmed! You're all set.**\n\n"
-                f"🔑 Your key: ||`{luarmor_key}`||\n"
-                "📋 Add `script_key = \"YOUR_KEY\";` to the top of your script.\n"
-                "🔒 Your HWID will auto-link on first execution.\n\n"
-                "Need help? Open a ticket!",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                "✅ Order confirmed. Premium role applied.\n"
-                "⚠️ Auto-whitelist failed. Please open a ticket so staff can whitelist you manually.",
-                ephemeral=True,
-            )
+                await interaction.followup.send(
+                    "**Order Confirmed** - Premium role applied.\n\n"
+                    "Auto-whitelist failed. Please open a ticket so staff can whitelist you manually.",
+                    ephemeral=True,
+                )
+        
+        except Exception as e:
+            print(f"[REDEEM ERROR] {e}")
+            try:
+                await interaction.followup.send(
+                    "An error occurred while processing your order. Please try again or open a ticket.",
+                    ephemeral=True,
+                )
+            except:
+                pass
 
 
 # -----------------------------
@@ -267,20 +280,20 @@ class Shop(commands.Cog):
             description=(
                 f"{SHOP_URL}\n\n"
                 "**How it works:**\n"
-                "1) 🛒 Purchase premium\n"
-                "2) ✅ Redeem Order ID\n"
-                "3) 💎 Receive Premium role\n"
-                "4) 🎫 Open a ticket to get whitelisted"
+                "1) Purchase premium\n"
+                "2) Redeem Order ID\n"
+                "3) Receive your key & Premium role\n"
+                "4) Add key to script and enjoy!"
             ),
             color=discord.Color(EMBED_COLOR),
         )
 
-        embed.add_field(name="👑 Lifetime", value="**$25 USD**\n**4,000 Robux**", inline=True)
-        embed.add_field(name="📅 Month", value="**$10 USD**\n**1,700 Robux**", inline=True)
-        embed.add_field(name="📅 Week", value="**$5 USD**\n**750 Robux**", inline=True)
+        embed.add_field(name="Lifetime", value="**$25 USD**\n**4,000 Robux**", inline=True)
+        embed.add_field(name="Month", value="**$10 USD**\n**1,700 Robux**", inline=True)
+        embed.add_field(name="Week", value="**$5 USD**\n**750 Robux**", inline=True)
 
         embed.add_field(
-            name="🎁 Roblox Gift Cards",
+            name="Roblox Gift Cards",
             value=(
                 "Accepted via ticket only\n"
                 "**Must be $5 higher than product price**\n"
