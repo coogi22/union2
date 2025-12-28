@@ -195,7 +195,7 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
         existing = (
             supabase.table("tickets")
             .select("id, channel_id")
-            .eq("opener_id", int(member.id))
+            .eq("user_id", int(member.id))
             .eq("status", "open")
             .order("id", desc=True)
             .limit(1)
@@ -215,7 +215,7 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
     try:
         ins = (
             supabase.table("tickets")
-            .insert({"opener_id": int(member.id), "status": "open"})
+            .insert({"user_id": int(member.id), "status": "open"})
             .execute()
         )
         if ins.data and isinstance(ins.data, list):
@@ -315,7 +315,7 @@ class Tickets(commands.Cog):
 
             # Get open tickets
             open_tickets = supabase.table("tickets").select(
-                "id, channel_id, opener_id, last_activity"
+                "id, channel_id, user_id, last_activity"
             ).eq("status", "open").execute()
 
             if not open_tickets.data:
@@ -384,7 +384,7 @@ class Tickets(commands.Cog):
                     # Log
                     log_ch = guild.get_channel(LOG_CHANNEL_ID)
                     if log_ch:
-                        opener_id = ticket.get("opener_id")
+                        user_id = ticket.get("user_id")
                         embed = discord.Embed(
                             title="Ticket Auto-Closed",
                             description=f"Inactive for {TICKET_AUTO_CLOSE_DAYS} days",
@@ -392,7 +392,7 @@ class Tickets(commands.Cog):
                         )
                         embed.add_field(name="Ticket", value=f"`{channel.name}`", inline=True)
                         embed.add_field(name="Messages", value=f"`{len(messages)}`", inline=True)
-                        embed.add_field(name="Opened By", value=f"<@{opener_id}>", inline=False)
+                        embed.add_field(name="Opened By", value=f"<@{user_id}>", inline=False)
 
                         transcript_file.seek(0)
                         await log_ch.send(
