@@ -370,106 +370,132 @@ class Admin(commands.Cog):
 
     @discord.app_commands.command(name="mycode", description="Get your referral code")
     async def mycode(self, interaction: Interaction):
-        await interaction.response.defer(ephemeral=True)
+        print(f"[MYCODE] Command called by {interaction.user.id}")
+        try:
+            print("[MYCODE] About to defer...")
+            await interaction.response.defer(ephemeral=True)
+            print("[MYCODE] Deferred successfully, querying Supabase...")
 
-        # Check if user has a referral code
-        existing = supabase.table("referrals").select("*").eq(
-            "referrer_discord_id", int(interaction.user.id)
-        ).limit(1).execute()
+            # Check if user has a referral code
+            existing = supabase.table("referrals").select("*").eq(
+                "referrer_discord_id", int(interaction.user.id)
+            ).limit(1).execute()
+            
+            print(f"[MYCODE] Query result: {existing.data}")
 
-        if existing.data:
-            ref = existing.data[0]
-            code = ref.get("referral_code")
-            uses = ref.get("uses", 0)
-            bonus_days = ref.get("bonus_days_per_referral", 3)
-        else:
-            # Create new code
-            code = _generate_referral_code()
-            supabase.table("referrals").insert({
-                "referrer_discord_id": int(interaction.user.id),
-                "referral_code": code,
-                "uses": 0,
-                "bonus_days_per_referral": 3
-            }).execute()
-            uses = 0
-            bonus_days = 3
+            if existing.data:
+                ref = existing.data[0]
+                code = ref.get("referral_code")
+                uses = ref.get("uses", 0)
+                bonus_days = ref.get("bonus_days_per_referral", 3)
+            else:
+                # Create new code
+                print("[MYCODE] Creating new referral code...")
+                code = _generate_referral_code()
+                supabase.table("referrals").insert({
+                    "referrer_discord_id": int(interaction.user.id),
+                    "referral_code": code,
+                    "uses": 0,
+                    "bonus_days_per_referral": 3
+                }).execute()
+                print(f"[MYCODE] Created code: {code}")
+                uses = 0
+                bonus_days = 3
 
-        embed = discord.Embed(
-            title="Your Referral Code",
-            description=(
-                f"**Code:** `{code}`\n\n"
-                f"Share this code with friends! When they purchase and mention your code in a ticket, "
-                f"you'll get **{bonus_days} bonus days** added to your subscription!"
-            ),
-            color=discord.Color(EMBED_COLOR)
-        )
-        embed.add_field(name="Total Referrals", value=f"**{uses}**", inline=True)
-        embed.add_field(name="Bonus Days Earned", value=f"**{uses * bonus_days}**", inline=True)
-        embed.set_footer(text="Referral codes are applied by staff when processing orders")
+            embed = discord.Embed(
+                title="Your Referral Code",
+                description=(
+                    f"**Code:** `{code}`\n\n"
+                    f"Share this code with friends! When they redeem their purchase, "
+                    f"they can enter your code to give you **{bonus_days} bonus days**!"
+                ),
+                color=discord.Color(EMBED_COLOR)
+            )
+            embed.add_field(name="Total Referrals", value=f"**{uses}**", inline=True)
+            embed.add_field(name="Bonus Days Earned", value=f"**{uses * bonus_days}**", inline=True)
+            embed.set_thumbnail(url=BOT_LOGO_URL)
+            embed.set_footer(text="Friends enter your code when redeeming their order")
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            print("[MYCODE] Sending response...")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            print("[MYCODE] Done!")
+        except Exception as e:
+            print(f"[MYCODE ERROR] {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                await interaction.followup.send(f"An error occurred: {str(e)}", ephemeral=True)
+            except Exception as e2:
+                print(f"[MYCODE] Failed to send error message: {e2}")
 
     @discord.app_commands.command(name="referrals", description="View referral statistics")
     @discord.app_commands.describe(user="User to check (staff only, leave empty for yourself)")
     async def referrals(self, interaction: Interaction, user: discord.Member = None):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
 
-        target = user or interaction.user
-        is_staff = _is_staff(interaction.user)
+            target = user or interaction.user
+            is_staff = _is_staff(interaction.user)
 
-        # Non-staff can only check themselves
-        if user and user.id != interaction.user.id and not is_staff:
-            await interaction.followup.send("You can only check your own referrals.", ephemeral=True)
-            return
+            # Non-staff can only check themselves
+            if user and user.id != interaction.user.id and not is_staff:
+                await interaction.followup.send("You can only check your own referrals.", ephemeral=True)
+                return
 
-        # Get referral info
-        referral = supabase.table("referrals").select("*").eq(
-            "referrer_discord_id", int(target.id)
-        ).limit(1).execute()
+            # Get referral info
+            referral = supabase.table("referrals").select("*").eq(
+                "referrer_discord_id", int(target.id)
+            ).limit(1).execute()
 
-        if not referral.data:
-            await interaction.followup.send(
-                f"{'You don' if target == interaction.user else f'{target.mention} doesn'}'t have a referral code yet. Use `/mycode` to create one!",
-                ephemeral=True
+            if not referral.data:
+                await interaction.followup.send(
+                    f"{'You don' if target == interaction.user else f'{target.mention} doesn'}'t have a referral code yet. Use `/mycode` to create one!",
+                    ephemeral=True
+                )
+                return
+
+            ref = referral.data[0]
+            code = ref.get("referral_code")
+            uses = ref.get("uses", 0)
+            bonus_days = ref.get("bonus_days_per_referral", 3)
+
+            # Get referral history
+            history = supabase.table("referral_uses").select("*").eq(
+                "referrer_discord_id", int(target.id)
+            ).order("created_at", desc=True).limit(10).execute()
+
+            embed = discord.Embed(
+                title=f"Referral Stats: {target}",
+                color=discord.Color(EMBED_COLOR)
             )
-            return
+            embed.add_field(name="Code", value=f"`{code}`", inline=True)
+            embed.add_field(name="Total Referrals", value=f"**{uses}**", inline=True)
+            embed.add_field(name="Bonus Days Earned", value=f"**{uses * bonus_days}**", inline=True)
 
-        ref = referral.data[0]
-        code = ref.get("referral_code")
-        uses = ref.get("uses", 0)
-        bonus_days = ref.get("bonus_days_per_referral", 3)
+            if history.data:
+                recent = []
+                for h in history.data[:5]:
+                    referred_id = h.get("referred_discord_id")
+                    created_at = h.get("created_at")
+                    if created_at:
+                        try:
+                            ts = int(datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp())
+                            date_str = f"<t:{ts}:R>"
+                        except:
+                            date_str = created_at[:10]
+                    else:
+                        date_str = "Unknown"
+                    recent.append(f"• <@{referred_id}> - {date_str}")
+                
+                embed.add_field(name="Recent Referrals", value="\n".join(recent), inline=False)
 
-        # Get referral history
-        history = supabase.table("referral_uses").select("*").eq(
-            "referrer_discord_id", int(target.id)
-        ).order("created_at", desc=True).limit(10).execute()
-
-        embed = discord.Embed(
-            title=f"Referral Stats: {target}",
-            color=discord.Color(EMBED_COLOR)
-        )
-        embed.add_field(name="Code", value=f"`{code}`", inline=True)
-        embed.add_field(name="Total Referrals", value=f"**{uses}**", inline=True)
-        embed.add_field(name="Bonus Days Earned", value=f"**{uses * bonus_days}**", inline=True)
-
-        if history.data:
-            recent = []
-            for h in history.data[:5]:
-                referred_id = h.get("referred_discord_id")
-                created_at = h.get("created_at")
-                if created_at:
-                    try:
-                        ts = int(datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp())
-                        date_str = f"<t:{ts}:R>"
-                    except:
-                        date_str = created_at[:10]
-                else:
-                    date_str = "Unknown"
-                recent.append(f"• <@{referred_id}> - {date_str}")
-            
-            embed.add_field(name="Recent Referrals", value="\n".join(recent), inline=False)
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"[REFERRALS ERROR] {e}")
+            try:
+                await interaction.followup.send(f"An error occurred: {str(e)}", ephemeral=True)
+            except:
+                pass
 
     @discord.app_commands.command(name="applyref", description="Apply a referral code for a purchase (staff only)")
     @discord.app_commands.describe(
