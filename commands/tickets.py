@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from discord import ui, Interaction
 from datetime import datetime, timezone
+import io
 
 from utils.supabase import get_supabase
 
@@ -80,7 +81,44 @@ class CloseTicketView(ui.View):
             await interaction.response.send_message("You don’t have permission to close this ticket.", ephemeral=True)
             return
 
-        await interaction.response.send_message("Closing ticket...", ephemeral=True)
+        await interaction.response.send_message("Generating transcript and closing ticket...", ephemeral=True)
+
+        transcript_lines = []
+        transcript_lines.append(f"{'='*60}")
+        transcript_lines.append(f"TICKET TRANSCRIPT: {channel.name}")
+        transcript_lines.append(f"Ticket ID: {ticket_id}")
+        transcript_lines.append(f"Closed At: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        transcript_lines.append(f"{'='*60}\n")
+
+        # Fetch all messages (oldest first)
+        messages = []
+        async for msg in channel.history(limit=None, oldest_first=True):
+            messages.append(msg)
+
+        for msg in messages:
+            timestamp = msg.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            author = f"{msg.author} ({msg.author.id})"
+            content = msg.content or "[No text content]"
+            
+            transcript_lines.append(f"[{timestamp}] {author}")
+            transcript_lines.append(f"{content}")
+            
+            # Include attachment URLs
+            if msg.attachments:
+                for att in msg.attachments:
+                    transcript_lines.append(f"  [Attachment: {att.filename} - {att.url}]")
+            
+            # Include embed titles
+            if msg.embeds:
+                for embed in msg.embeds:
+                    if embed.title:
+                        transcript_lines.append(f"  [Embed: {embed.title}]")
+            
+            transcript_lines.append("")  # Empty line between messages
+
+        transcript_text = "\n".join(transcript_lines)
+        transcript_file = io.BytesIO(transcript_text.encode('utf-8'))
+        transcript_file.name = f"transcript-{channel.name}.txt"
 
         # Update DB (best-effort)
         if ticket_id:
@@ -92,7 +130,7 @@ class CloseTicketView(ui.View):
             except Exception:
                 pass
 
-        # Log close (cache-safe)  ✅ (deduped)
+        # Log close (cache-safe)
         log_ch = interaction.guild.get_channel(LOG_CHANNEL_ID)
         if log_ch is None:
             try:
@@ -117,13 +155,20 @@ class CloseTicketView(ui.View):
         closer_text = f"{interaction.user.mention} • **{interaction.user}** (`{interaction.user.id}`)"
 
         if log_ch:
-            embed = discord.Embed(title="🎫 Ticket Closed", color=discord.Color(EMBED_COLOR))
+            embed = discord.Embed(title="Ticket Closed", color=discord.Color(EMBED_COLOR))
             embed.add_field(name="Ticket", value=f"`{channel.name}`", inline=True)
             if ticket_id:
                 embed.add_field(name="Ticket #", value=f"`{ticket_id}`", inline=True)
+            embed.add_field(name="Messages", value=f"`{len(messages)}`", inline=True)
             embed.add_field(name="Opened By", value=opener_text, inline=False)
             embed.add_field(name="Closed By", value=closer_text, inline=False)
-            await log_ch.send(embed=embed)
+            
+            # Reset file position and send with transcript
+            transcript_file.seek(0)
+            await log_ch.send(
+                embed=embed, 
+                file=discord.File(transcript_file, filename=f"transcript-{channel.name}.txt")
+            )
 
         try:
             await channel.delete(reason=f"Ticket closed by {interaction.user} ({interaction.user.id})")
