@@ -276,15 +276,33 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
     # Initial message
     embed = discord.Embed(
         title="🎫 Support Ticket",
-        description=(
-            "Thanks for opening a ticket.\n\n"
-            "**To get whitelisted:**\n"
-            "• Order ID from SellAuth\n"
-            "• What you purchased / duration\n"
-            "• Roblox username if purchasing with robux\n"
-            "• Any extra info staff asks for\n"
-        ),
+        description="Thanks for opening a ticket! Please read below based on your reason for opening.",
         color=discord.Color(EMBED_COLOR),
+    )
+    
+    embed.add_field(
+        name="💵 Purchasing with Robux?",
+        value=(
+            "**Gamepasses:**\n"
+            "• [Week - 700 Robux](https://www.roblox.com/game-pass/109857815)\n"
+            "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/129890883)\n"
+            "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/125899946)\n\n"
+            "**Please provide:**\n"
+            "• Screenshot proof of purchase\n"
+            "• Your Roblox username"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="🛠️ Need Support?",
+        value=(
+            "**Please provide:**\n"
+            "• Detailed explanation of your issue\n"
+            "• What executor you are using\n"
+            "• Screenshot of your console/error logs"
+        ),
+        inline=False
     )
 
     staff_mentions = " ".join(f"<@&{rid}>" for rid in STAFF_ROLE_IDS)
