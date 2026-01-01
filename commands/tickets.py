@@ -13,8 +13,8 @@ TICKET_CATEGORY_ID = 1448176697693175970
 LOG_CHANNEL_ID = 1449252986911068273
 
 STAFF_ROLE_IDS = {
-    1432015464036433970,
-    1449491116822106263,
+    1432015464036433970,  # Staff Role
+    1449491116822106263,  # Support Team
 }
 
 EMBED_COLOR = 0x489BF3
@@ -284,7 +284,7 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
         name="💵 Purchasing with Robux?",
         value=(
             "**Gamepasses:**\n"
-            "• [Week - 750 Robux](https://www.roblox.com/game-pass/109857815)\n"
+            "• [Week - 700 Robux](https://www.roblox.com/game-pass/109857815)\n"
             "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/129890883)\n"
             "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/125899946)\n\n"
             "**Please provide:**\n"

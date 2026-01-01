@@ -13,7 +13,10 @@ from utils.supabase import get_supabase
 # CONFIG
 # -----------------------------
 GUILD_ID = 1345153296360542271
-STAFF_ROLE_IDS = {1432015464036433970, 1449491116822106263}
+
+ADMIN_STAFF_ROLE_IDS = {1432015464036433970}  # Full staff
+SUPPORT_ROLE_IDS = {1449491116822106263}  # Support team (view only)
+ALL_STAFF_ROLE_IDS = ADMIN_STAFF_ROLE_IDS | SUPPORT_ROLE_IDS
 
 SHOP_URL = os.getenv("SHOP_URL", "").strip()
 SELLAUTH_API_KEY = os.getenv("SELLAUTH_API_KEY")
@@ -99,14 +102,14 @@ class CopyOrderView(discord.ui.View):
 
     @discord.ui.button(label="Copy Order ID", style=discord.ButtonStyle.primary)
     async def copy_order_id(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"```{self.invoice_id}```", ephemeral=True)
+        await interaction.response.send_message(f"\`\`\`{self.invoice_id}\`\`\`", ephemeral=True)
 
 def staff_only():
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             raise app_commands.CheckFailure("Must be used in a server.")
 
-        if any(r.id in STAFF_ROLE_IDS for r in interaction.user.roles):
+        if any(r.id in ALL_STAFF_ROLE_IDS for r in interaction.user.roles):
             return True
 
         raise app_commands.CheckFailure("You do not have permission to use this command.")

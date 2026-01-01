@@ -19,11 +19,6 @@ GUILD_ID = 1345153296360542271
 
 ACCESS_ROLE_ID = 1444450052323147826  # Premium role
 
-STAFF_ROLE_IDS = {
-    1432015464036433970,
-    1449491116822106263,
-}
-
 SHOP_URL = "https://scriptunion.mysellauth.com/"
 BOT_LOGO_URL = "https://cdn.discordapp.com/attachments/1449252986911068273/1449511913317732485/ScriptUnionIcon.png"
 
@@ -85,7 +80,6 @@ def compute_expires_at_from_variant(variant_name: str) -> str | None:
     if "year" in v:
         return (now + timedelta(days=365)).isoformat()
 
-    # Lifetime / default
     return None
 
 
@@ -214,7 +208,6 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             if ref_code:
                 try:
                     print(f"[REFERRAL] Processing code: {ref_code}")
-                    # Check if referral code exists
                     referral_data = (
                         supabase.table("referrals")
                         .select("*")
@@ -229,9 +222,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                         bonus_days = referral.get("bonus_days_per_referral", 3)
                         print(f"[REFERRAL] Found code for referrer {referrer_id}, bonus days: {bonus_days}")
                         
-                        # Can't use your own code
                         if referrer_id != member.id:
-                            # Check if this user already used a referral code before
                             already_used = (
                                 supabase.table("referral_uses")
                                 .select("id")
@@ -243,23 +234,19 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                             if not already_used.data:
                                 print(f"[REFERRAL] Adding {bonus_days} days to referrer {referrer_id}")
                                 
-                                # Try to add bonus days to referrer
                                 referrer_result = await add_time_to_user(referrer_id, bonus_days)
                                 
                                 bonus_applied = False
                                 if referrer_result:
                                     if referrer_result.get("error") == "lifetime":
-                                        # Referrer has lifetime, can't add time but still counts
                                         print(f"[REFERRAL] Referrer has lifetime, no bonus needed")
                                         bonus_applied = True
                                     elif referrer_result.get("new_expire"):
-                                        print(f"[REFERRAL] ✅ Added bonus days, new expire: {referrer_result.get('new_expire')}")
+                                        print(f"[REFERRAL] Added bonus days, new expire: {referrer_result.get('new_expire')}")
                                         bonus_applied = True
                                 else:
-                                    # Referrer not in Luarmor - they might need to redeem first
                                     print(f"[REFERRAL] Referrer not found in Luarmor")
                                 
-                                # Log the referral use
                                 supabase.table("referral_uses").insert({
                                     "referral_code": ref_code,
                                     "referrer_discord_id": referrer_id,
@@ -267,26 +254,24 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                                     "bonus_days_awarded": bonus_days if bonus_applied else 0,
                                 }).execute()
                                 
-                                # Increment referral count
                                 supabase.table("referrals").update({
                                     "uses": referral["uses"] + 1
                                 }).eq("referral_code", ref_code).execute()
                                 
                                 if bonus_applied:
-                                    referral_bonus_msg = f"\n\n✅ Referral code applied! <@{referrer_id}> received {bonus_days} bonus days."
+                                    referral_bonus_msg = f"\n\nReferral code applied! <@{referrer_id}> received {bonus_days} bonus days."
                                     
-                                    # DM referrer about the bonus
                                     try:
                                         referrer = await guild.fetch_member(referrer_id)
                                         if referrer:
                                             await referrer.send(
-                                                f"🎉 Someone used your referral code `{ref_code}`!\n"
+                                                f"Someone used your referral code `{ref_code}`!\n"
                                                 f"You received **{bonus_days} bonus days** added to your subscription."
                                             )
                                     except Exception as dm_err:
                                         print(f"[REFERRAL] Could not DM referrer: {dm_err}")
                                 else:
-                                    referral_bonus_msg = f"\n\n⚠️ Referral code applied, but <@{referrer_id}> doesn't have an active subscription to add days to."
+                                    referral_bonus_msg = f"\n\nReferral code applied, but <@{referrer_id}> doesn't have an active subscription to add days to."
                             else:
                                 print(f"[REFERRAL] User {member.id} already used a referral code")
                         else:
@@ -296,7 +281,6 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                 except Exception as e:
                     print(f"[REFERRAL ERROR] {e}")
 
-            # Save redemption
             supabase.table("role_redeem").insert({
                 "role_id": int(ACCESS_ROLE_ID),
                 "redeemed": True,
@@ -309,10 +293,9 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                 "redeemed_at": datetime.now(timezone.utc).isoformat(),
                 "luarmor_key": luarmor_key,
                 "whitelisted": True if luarmor_key else False,
-                "referral_code": ref_code,  # Store referral code used
+                "referral_code": ref_code,
             }).execute()
 
-            # Log embed
             log_channel = guild.get_channel(LOG_CHANNEL_ID)
             if log_channel:
                 embed = discord.Embed(title="Order Redeemed", color=discord.Color.green())
@@ -374,13 +357,13 @@ class ShopView(ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
-        self.add_item(ui.Button(label="🛒 Purchase", url=SHOP_URL, style=discord.ButtonStyle.link))
+        self.add_item(ui.Button(label="Purchase", url=SHOP_URL, style=discord.ButtonStyle.link))
 
-    @ui.button(label="✅ Redeem Order ID", style=discord.ButtonStyle.primary)
+    @ui.button(label="Redeem Order ID", style=discord.ButtonStyle.primary)
     async def redeem_order(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_modal(RedeemOrderModal(self.bot))
 
-    @ui.button(label="🎫 Open Ticket", style=discord.ButtonStyle.secondary)
+    @ui.button(label="Open Ticket", style=discord.ButtonStyle.secondary)
     async def open_ticket(self, interaction: Interaction, button: ui.Button):
         await interaction.response.defer(ephemeral=True)
         channel = await create_or_get_ticket_channel(interaction.guild, interaction.user)
@@ -430,93 +413,6 @@ class Shop(commands.Cog):
         embed.set_footer(text="Fix-It-Up Script • Premium Access")
 
         await channel.send(embed=embed, view=ShopView(self.bot))
-
-    @discord.app_commands.command(name="addtime", description="Add days to a user's whitelist")
-    @discord.app_commands.describe(user="The user to add time to", days="Number of days to add")
-    async def addtime(self, interaction: Interaction, user: discord.Member, days: int):
-        # Staff check
-        if not any(role.id in STAFF_ROLE_IDS for role in interaction.user.roles):
-            await interaction.response.send_message("You don't have permission to use this.", ephemeral=True)
-            return
-        
-        await interaction.response.defer(ephemeral=True)
-        
-        result = await add_time_to_user(user.id, days)
-        
-        if not result:
-            await interaction.followup.send(f"{user.mention} doesn't have a whitelist key.", ephemeral=True)
-            return
-        
-        if result.get("error") == "lifetime":
-            await interaction.followup.send(f"{user.mention} has a lifetime key - no expiry to extend.", ephemeral=True)
-            return
-        
-        old_ts = result["old_expire"]
-        new_ts = result["new_expire"]
-        
-        embed = discord.Embed(title="Time Added", color=discord.Color.green())
-        embed.add_field(name="User", value=f"{user.mention}", inline=True)
-        embed.add_field(name="Days Added", value=f"{days}", inline=True)
-        embed.add_field(name="Old Expiry", value=f"<t:{old_ts}:F>", inline=False)
-        embed.add_field(name="New Expiry", value=f"<t:{new_ts}:F>", inline=False)
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        
-        # Log it
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = discord.Embed(title="Time Added to Key", color=discord.Color.blue())
-            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
-            log_embed.add_field(name="Days Added", value=f"{days}", inline=True)
-            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
-            log_embed.add_field(name="New Expiry", value=f"<t:{new_ts}:F>", inline=False)
-            await log_channel.send(embed=log_embed)
-
-    @discord.app_commands.command(name="keytime", description="Check remaining time on a whitelist key")
-    @discord.app_commands.describe(user="The user to check (leave empty to check yourself)")
-    async def keytime(self, interaction: Interaction, user: discord.Member = None):
-        await interaction.response.defer(ephemeral=True)
-        
-        target = user or interaction.user
-        
-        # Non-staff can only check their own key
-        is_staff = any(role.id in STAFF_ROLE_IDS for role in interaction.user.roles)
-        if user and user.id != interaction.user.id and not is_staff:
-            await interaction.followup.send("You can only check your own key.", ephemeral=True)
-            return
-        
-        user_info = await get_user_info(target.id)
-        
-        if not user_info:
-            await interaction.followup.send(f"{'You don' if target == interaction.user else f'{target.mention} doesn'}'t have a whitelist key.", ephemeral=True)
-            return
-        
-        user_key = user_info.get("user_key")
-        auth_expire = user_info.get("auth_expire")
-        
-        embed = discord.Embed(title="Whitelist Key Info", color=discord.Color(EMBED_COLOR))
-        embed.add_field(name="User", value=f"{target.mention}", inline=True)
-        
-        if is_staff:
-            embed.add_field(name="Key", value=f"||`{user_key}`||", inline=True)
-        
-        if auth_expire is None or auth_expire == -1:
-            embed.add_field(name="Expires", value="**Lifetime** (Never)", inline=False)
-        else:
-            now = int(datetime.now(timezone.utc).timestamp())
-            if auth_expire < now:
-                embed.add_field(name="Status", value="**EXPIRED**", inline=False)
-                embed.add_field(name="Expired On", value=f"<t:{auth_expire}:F>", inline=False)
-                embed.color = discord.Color.red()
-            else:
-                remaining_seconds = auth_expire - now
-                days = remaining_seconds // 86400
-                hours = (remaining_seconds % 86400) // 3600
-                
-                embed.add_field(name="Expires", value=f"<t:{auth_expire}:F>", inline=False)
-                embed.add_field(name="Time Remaining", value=f"**{days}** days, **{hours}** hours", inline=False)
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
