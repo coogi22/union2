@@ -245,35 +245,42 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                                         print(f"[REFERRAL] Added bonus days, new expire: {referrer_result.get('new_expire')}")
                                         bonus_applied = True
                                 else:
-                                    print(f"[REFERRAL] Referrer not found in Luarmor")
-                                
-                                supabase.table("referral_uses").insert({
-                                    "referral_code": ref_code,
-                                    "referrer_discord_id": referrer_id,
-                                    "referred_discord_id": member.id,
-                                    "bonus_days_awarded": bonus_days if bonus_applied else 0,
-                                }).execute()
-                                
-                                supabase.table("referrals").update({
-                                    "uses": referral["uses"] + 1
-                                }).eq("referral_code", ref_code).execute()
-                                
-                                if bonus_applied:
-                                    referral_bonus_msg = f"\n\nReferral code applied! <@{referrer_id}> received {bonus_days} bonus days."
-                                    
+                                    print(f"[REFERRAL] Referrer not in Luarmor, creating account with {bonus_days} days")
                                     try:
-                                        referrer = await guild.fetch_member(referrer_id)
-                                        if referrer:
-                                            await referrer.send(
-                                                f"Someone used your referral code `{ref_code}`!\n"
-                                                f"You received **{bonus_days} bonus days** added to your subscription."
-                                            )
-                                    except Exception as dm_err:
-                                        print(f"[REFERRAL] Could not DM referrer: {dm_err}")
-                                else:
-                                    referral_bonus_msg = f"\n\nReferral code applied, but <@{referrer_id}> doesn't have an active subscription to add days to."
+                                        new_user = await create_or_update_user(
+                                            discord_id=referrer_id,
+                                            plan_name=f"Referral Bonus ({bonus_days} days)",
+                                            note=f"Referral bonus from {member.id} using code {ref_code}"
+                                        )
+                                        if new_user:
+                                            print(f"[REFERRAL] Created Luarmor account for referrer {referrer_id}")
+                                            bonus_applied = True
+                                            
+                                            # Give them the premium role too
+                                            try:
+                                                referrer_member = guild.get_member(referrer_id) or await guild.fetch_member(referrer_id)
+                                                if referrer_member and role not in referrer_member.roles:
+                                                    await referrer_member.add_roles(role, reason=f"Referral bonus from {member.id}")
+                                                    print(f"[REFERRAL] Added premium role to referrer {referrer_id}")
+                                            except Exception as role_err:
+                                                print(f"[REFERRAL] Could not add role to referrer: {role_err}")
+                                    except Exception as create_err:
+                                        print(f"[REFERRAL] Failed to create account for referrer: {create_err}")
+                                
+                            if bonus_applied:
+                                referral_bonus_msg = f"\n\nReferral code applied! <@{referrer_id}> received {bonus_days} bonus days."
+                                
+                                try:
+                                    referrer = await guild.fetch_member(referrer_id)
+                                    if referrer:
+                                        await referrer.send(
+                                            f"Someone used your referral code `{ref_code}`!\n"
+                                            f"You received **{bonus_days} bonus days** added to your subscription."
+                                        )
+                                except Exception as dm_err:
+                                    print(f"[REFERRAL] Could not DM referrer: {dm_err}")
                             else:
-                                print(f"[REFERRAL] User {member.id} already used a referral code")
+                                referral_bonus_msg = f"\n\nReferral code applied, but <@{referrer_id}> doesn't have an active subscription to add days to."
                         else:
                             print(f"[REFERRAL] User tried to use their own code")
                     else:

@@ -4,6 +4,7 @@ import aiohttp
 from aiohttp import ClientTimeout
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
+import re
 
 LUARMOR_API_KEY = (os.getenv("LUARMOR_API_KEY") or "").strip()
 LUARMOR_PROJECT_ID = (os.getenv("LUARMOR_PROJECT_ID") or "").strip()
@@ -214,6 +215,11 @@ def compute_expiry_timestamp(product_name: str | None, variant_name: str | None)
         return now + (365 * 86400)
     if "lifetime" in text or "life" in text:
         return -1  # Luarmor: -1 = never expires
+    
+    day_match = re.search(r'(\d+)\s*days?', text)
+    if day_match:
+        days = int(day_match.group(1))
+        return now + (days * 86400)
     
     return -1  # Default to lifetime
 
