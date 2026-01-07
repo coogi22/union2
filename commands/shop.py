@@ -27,6 +27,8 @@ EMBED_COLOR = 0x489BF3
 SELLAUTH_API_KEY = (os.getenv("SELLAUTH_API_KEY") or "").strip()
 SELLAUTH_SHOP_ID = (os.getenv("SELLAUTH_SHOP_ID") or "").strip()
 
+WHITELIST_PRODUCTS = ["fix it up", "fix-it-up", "fixitup"]
+
 supabase = get_supabase()
 
 # -----------------------------
@@ -82,6 +84,11 @@ def compute_expires_at_from_variant(variant_name: str) -> str | None:
 
     return None
 
+
+def should_whitelist_product(product_name: str, variant_name: str) -> bool:
+    """Check if this product should be whitelisted on Luarmor."""
+    combined = f"{product_name} {variant_name}".lower()
+    return any(p in combined for p in WHITELIST_PRODUCTS)
 
 # -----------------------------
 # MODAL
@@ -191,18 +198,21 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             luarmor_key = None
             luarmor_expiry = None
             
-            try:
-                luarmor_result = await create_or_update_user(
-                    discord_id=member.id,
-                    plan_name=variant_name,
-                    note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
-                )
-                
-                if luarmor_result:
-                    luarmor_key = luarmor_result.get("user_key")
-                    luarmor_expiry = luarmor_result.get("expires_at")
-            except Exception as e:
-                print(f"[LUARMOR ERROR] Failed to whitelist {member.id}: {e}")
+            if should_whitelist_product(product_name, variant_name):
+                try:
+                    luarmor_result = await create_or_update_user(
+                        discord_id=member.id,
+                        plan_name=variant_name,
+                        note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
+                    )
+                    
+                    if luarmor_result:
+                        luarmor_key = luarmor_result.get("user_key")
+                        luarmor_expiry = luarmor_result.get("expires_at")
+                except Exception as e:
+                    print(f"[LUARMOR ERROR] Failed to whitelist {member.id}: {e}")
+            else:
+                print(f"[SKIP WHITELIST] Product '{product_name}' is not a whitelistable product")
 
             referral_bonus_msg = ""
             if ref_code:
@@ -331,17 +341,26 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
 
                 await log_channel.send(embed=embed)
 
-            if luarmor_key:
-                await interaction.followup.send(
-                    "**Order Confirmed - You're all set!**\n\n"
-                    f"Head to <#1444457969407496352> and press **Get Script** to get started.\n\n"
-                    f"Need help? Open a ticket!{referral_bonus_msg}",
-                    ephemeral=True,
-                )
+            if should_whitelist_product(product_name, variant_name):
+                if luarmor_key:
+                    await interaction.followup.send(
+                        "**Order Confirmed - You're all set!**\n\n"
+                        f"Head to <#1444457969407496352> and press **Get Script** to get started.\n\n"
+                        f"Need help? Open a ticket!{referral_bonus_msg}",
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.followup.send(
+                        "**Order Confirmed** - Premium role applied.\n\n"
+                        f"Auto-whitelist failed. Please open a ticket so staff can whitelist you manually.{referral_bonus_msg}",
+                        ephemeral=True,
+                    )
             else:
+                # Non-whitelist product (like alts)
                 await interaction.followup.send(
-                    "**Order Confirmed** - Premium role applied.\n\n"
-                    f"Auto-whitelist failed. Please open a ticket so staff can whitelist you manually.{referral_bonus_msg}",
+                    f"**Order Confirmed!**\n\n"
+                    f"Your **{product_name}** order has been verified.\n"
+                    f"Check your SellAuth email for delivery details.{referral_bonus_msg}",
                     ephemeral=True,
                 )
         
