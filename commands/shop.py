@@ -125,6 +125,19 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
 
             member = guild.get_member(interaction.user.id) or await guild.fetch_member(interaction.user.id)
 
+            blacklisted = supabase.table("blacklist").select("reason").eq(
+                "discord_id", int(member.id)
+            ).limit(1).execute()
+
+            if blacklisted.data:
+                reason = blacklisted.data[0].get("reason", "No reason provided")
+                await interaction.followup.send(
+                    f"You are blacklisted from redeeming orders.\n**Reason:** {reason}\n\n"
+                    "If you believe this is an error, please contact a staff member.",
+                    ephemeral=True
+                )
+                return
+
             existing_invoice = (
                 supabase.table("role_redeem")
                 .select("id, redeemed_by")

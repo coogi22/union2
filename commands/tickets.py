@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks  # Added tasks import
+from discord.ext import commands, tasks
 from discord import ui, Interaction
 from datetime import datetime, timezone, timedelta
 import io
@@ -11,6 +11,7 @@ from utils.supabase import get_supabase
 # -----------------------------
 TICKET_CATEGORY_ID = 1448176697693175970
 LOG_CHANNEL_ID = 1449252986911068273
+TICKET_PANEL_CHANNEL_ID = 1459670755137818648  # Channel for ticket creation panel
 
 STAFF_ROLE_IDS = {
     1432015464036433970,  # Staff Role
@@ -19,7 +20,7 @@ STAFF_ROLE_IDS = {
 
 EMBED_COLOR = 0x489BF3
 
-TICKET_AUTO_CLOSE_DAYS = 3  # Close inactive tickets after 3 days
+TICKET_AUTO_CLOSE_DAYS = 3
 
 supabase = get_supabase()
 
@@ -52,6 +53,64 @@ def _get_ticket_id_from_topic(topic: str | None) -> int | None:
             except Exception:
                 return None
     return None
+
+
+class TicketReasonSelect(ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(
+                label="Robux Payment",
+                description="Purchase with Robux gamepass",
+                emoji="💵",
+                value="robux"
+            ),
+            discord.SelectOption(
+                label="Support",
+                description="Get help with an issue",
+                emoji="🛠️",
+                value="support"
+            ),
+            discord.SelectOption(
+                label="Other",
+                description="Something else",
+                emoji="❓",
+                value="other"
+            ),
+        ]
+        super().__init__(
+            placeholder="Select a reason...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="ticket_reason_select_v1"
+        )
+
+    async def callback(self, interaction: Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return
+
+        reason = self.values[0]
+        
+        # Create ticket with reason
+        channel = await create_or_get_ticket_channel(interaction.guild, interaction.user, reason)
+        
+        if channel:
+            await interaction.response.send_message(
+                f"Your ticket has been created: {channel.mention}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Failed to create ticket. Please contact staff.",
+                ephemeral=True
+            )
+
+
+class TicketReasonView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TicketReasonSelect())
 
 
 class CloseTicketView(ui.View):
@@ -178,7 +237,7 @@ class CloseTicketView(ui.View):
             pass
 
 
-async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Member) -> discord.TextChannel | None:
+async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Member, reason: str = "other") -> discord.TextChannel | None:
     # Fetch category
     category = guild.get_channel(TICKET_CATEGORY_ID)
     if category is None:
@@ -241,14 +300,14 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
         if role:
             overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
-    topic = f"ticket_opener={member.id} ticket_id={ticket_id}"
+    topic = f"ticket_opener={member.id} ticket_id={ticket_id} reason={reason}"
 
     ch = await guild.create_text_channel(
         name=channel_name,
         category=category,
         overwrites=overwrites,
         topic=topic,
-        reason=f"Ticket opened by {member} ({member.id})"
+        reason=f"Ticket opened by {member} ({member.id}) - Reason: {reason}"
     )
 
     # Save channel_id back to DB (best-effort)
@@ -257,7 +316,7 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
     except Exception:
         pass
 
-    # ✅ NEW: Log open (cache-safe)
+    # Log open
     log_ch = guild.get_channel(LOG_CHANNEL_ID)
     if log_ch is None:
         try:
@@ -265,45 +324,67 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
         except Exception:
             log_ch = None
 
+    reason_display = {
+        "robux": "Robux Payment",
+        "support": "Support",
+        "other": "Other"
+    }.get(reason, "Other")
+
     if log_ch:
         opener_text = f"{member.mention} • **{member}** (`{member.id}`)"
-        embed_open = discord.Embed(title="🎫 Ticket Opened", color=discord.Color(EMBED_COLOR))
+        embed_open = discord.Embed(title="Ticket Opened", color=discord.Color(EMBED_COLOR))
         embed_open.add_field(name="Ticket #", value=f"`{ticket_id}`", inline=True)
         embed_open.add_field(name="Channel", value=ch.mention, inline=True)
+        embed_open.add_field(name="Reason", value=f"`{reason_display}`", inline=True)
         embed_open.add_field(name="Opened By", value=opener_text, inline=False)
         await log_ch.send(embed=embed_open)
 
-    # Initial message
-    embed = discord.Embed(
-        title="🎫 Support Ticket",
-        description="Thanks for opening a ticket! Please read below based on your reason for opening.",
-        color=discord.Color(EMBED_COLOR),
-    )
-    
-    embed.add_field(
-        name="💵 Purchasing with Robux?",
-        value=(
-            "**Gamepasses:**\n"
-            "• [Week - 700 Robux](https://www.roblox.com/game-pass/109857815)\n"
-            "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/129890883)\n"
-            "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/125899946)\n\n"
-            "**Please provide:**\n"
-            "• Screenshot proof of purchase\n"
-            "• Your Roblox username"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🛠️ Need Support?",
-        value=(
-            "**Please provide:**\n"
-            "• Detailed explanation of your issue\n"
-            "• What executor you are using\n"
-            "• Screenshot of your console/error logs"
-        ),
-        inline=False
-    )
+    if reason == "robux":
+        embed = discord.Embed(
+            title="Robux Payment",
+            description="Thanks for purchasing with Robux!",
+            color=discord.Color(EMBED_COLOR),
+        )
+        embed.add_field(
+            name="Gamepasses",
+            value=(
+                "• [Week - 700 Robux](https://www.roblox.com/game-pass/109857815)\n"
+                "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/129890883)\n"
+                "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/125899946)"
+            ),
+            inline=False
+        )
+        embed.add_field(
+            name="Please Provide",
+            value=(
+                "1. Screenshot proof of your purchase\n"
+                "2. Your Roblox username\n"
+                "3. Which gamepass you purchased (Week/Month/Lifetime)"
+            ),
+            inline=False
+        )
+    elif reason == "support":
+        embed = discord.Embed(
+            title="Support Request",
+            description="We're here to help! Please provide the following information:",
+            color=discord.Color(EMBED_COLOR),
+        )
+        embed.add_field(
+            name="Please Provide",
+            value=(
+                "1. Detailed explanation of your issue\n"
+                "2. What executor you are using\n"
+                "3. Screenshot of your console/error logs"
+            ),
+            inline=False
+        )
+        embed.set_footer(text="The more details you provide, the faster we can help!")
+    else:
+        embed = discord.Embed(
+            title="Support Ticket",
+            description="Thanks for opening a ticket! Please describe what you need help with.",
+            color=discord.Color(EMBED_COLOR),
+        )
 
     staff_mentions = " ".join(f"<@&{rid}>" for rid in STAFF_ROLE_IDS)
     await ch.send(content=f"{staff_mentions}\n<@{member.id}>", embed=embed, view=CloseTicketView())
@@ -314,12 +395,61 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
 class Tickets(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Register persistent view so old buttons keep working after restart
+        # Register persistent views so buttons keep working after restart
         self.bot.add_view(CloseTicketView())
-        self.auto_close_tickets.start()  # Start auto-close task
+        self.bot.add_view(TicketReasonView())  # Register reason view
+        self.auto_close_tickets.start()
 
     def cog_unload(self):
-        self.auto_close_tickets.cancel()  # Stop task on unload
+        self.auto_close_tickets.cancel()
+
+    @discord.app_commands.command(name="ticketpanel", description="Send the ticket creation panel (Admin only)")
+    @discord.app_commands.default_permissions(administrator=True)
+    async def ticket_panel(self, interaction: Interaction):
+        """Send the ticket creation panel to the designated channel"""
+        if not interaction.guild:
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return
+
+        panel_channel = interaction.guild.get_channel(TICKET_PANEL_CHANNEL_ID)
+        if not panel_channel:
+            try:
+                panel_channel = await interaction.guild.fetch_channel(TICKET_PANEL_CHANNEL_ID)
+            except:
+                await interaction.response.send_message(
+                    f"Could not find ticket panel channel.", ephemeral=True
+                )
+                return
+
+        embed = discord.Embed(
+            title="Create a Ticket",
+            description=(
+                "Need help or want to purchase with Robux?\n\n"
+                "Select a reason below to open a support ticket."
+            ),
+            color=discord.Color(EMBED_COLOR)
+        )
+        embed.add_field(
+            name="💵 Robux Payment",
+            value="Purchase a subscription using Roblox gamepasses",
+            inline=False
+        )
+        embed.add_field(
+            name="🛠️ Support",
+            value="Get help with an issue or bug",
+            inline=False
+        )
+        embed.add_field(
+            name="❓ Other",
+            value="Any other questions or inquiries",
+            inline=False
+        )
+        embed.set_footer(text="Select a reason from the dropdown below")
+
+        await panel_channel.send(embed=embed, view=TicketReasonView())
+        await interaction.response.send_message(
+            f"Ticket panel sent to {panel_channel.mention}!", ephemeral=True
+        )
 
     @tasks.loop(hours=1)
     async def auto_close_tickets(self):

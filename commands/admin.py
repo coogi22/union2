@@ -7,7 +7,8 @@ import random
 import string
 
 from utils.supabase import get_supabase
-from utils.luarmor import get_user_info, add_time_to_user, delete_user_by_discord
+from utils.luarmor import get_user_info, add_time_to_user, delete_user_by_discord, create_or_update_user
+from utils.roblox import verify_gamepass_purchase, get_gamepass_info, get_all_gamepasses, GAMEPASSES
 
 # -----------------------------
 # CONFIG
@@ -312,6 +313,264 @@ class Admin(commands.Cog):
             log_embed.add_field(name="Code", value=f"`{code.upper()}`", inline=True)
             log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
             await log_channel.send(embed=log_embed)
+
+    @discord.app_commands.command(name="verifygamepass", description="Verify a Roblox gamepass purchase and whitelist user")
+    @discord.app_commands.describe(
+        user="The Discord user who purchased",
+        roblox_username="Their Roblox username",
+        gamepass="The gamepass they purchased"
+    )
+    @discord.app_commands.choices(gamepass=[
+        discord.app_commands.Choice(name="Week (700 Robux)", value=109857815),
+        discord.app_commands.Choice(name="Month (1700 Robux)", value=129890883),
+        discord.app_commands.Choice(name="Lifetime (4000 Robux)", value=125899946),
+    ])
+    async def verifygamepass(self, interaction: Interaction, user: discord.Member, roblox_username: str, gamepass: int):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Verify gamepass ownership via Roblox API
+        success, roblox_user_id, message = await verify_gamepass_purchase(roblox_username, gamepass)
+        
+        if not success:
+            embed = discord.Embed(
+                title="Verification Failed",
+                description=message,
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # Check if this roblox user already redeemed this gamepass
+        gamepass_info = get_gamepass_info(gamepass)
+        existing = supabase.table("gamepass_redemptions").select("*").eq(
+            "roblox_user_id", roblox_user_id
+        ).eq("gamepass_id", gamepass).execute()
+
+        if existing.data:
+            prev = existing.data[0]
+            prev_discord = prev.get("discord_id")
+            prev_date = prev.get("redeemed_at", "Unknown")[:10]
+            embed = discord.Embed(
+                title="Already Redeemed",
+                description=(
+                    f"This Roblox account already redeemed the **{gamepass_info['name']}** gamepass.\n\n"
+                    f"**Previous redemption:**\n"
+                    f"Discord: <@{prev_discord}>\n"
+                    f"Date: {prev_date}\n\n"
+                    "If the user deleted and re-purchased the gamepass, use `/addtime` to extend manually."
+                ),
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # Whitelist on Luarmor
+        product_name = f"Script Union - Fix it up ({gamepass_info['name']})"
+        luarmor_result = await create_or_update_user(user.id, product_name)
+
+        if not luarmor_result or luarmor_result.get("error"):
+            embed = discord.Embed(
+                title="Whitelist Failed",
+                description=f"Failed to create Luarmor key: {luarmor_result.get('error') if luarmor_result else 'Unknown error'}",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        # Record the redemption
+        supabase.table("gamepass_redemptions").insert({
+            "discord_id": int(user.id),
+            "roblox_username": roblox_username,
+            "roblox_user_id": roblox_user_id,
+            "gamepass_id": gamepass,
+            "product_type": gamepass_info["name"],
+            "verified_by": int(interaction.user.id)
+        }).execute()
+
+        # Give role
+        role = interaction.guild.get_role(ACCESS_ROLE_ID)
+        if role and role not in user.roles:
+            try:
+                await user.add_roles(role, reason=f"Gamepass verified by {interaction.user}")
+            except:
+                pass
+
+        # Calculate expiry for display
+        if gamepass_info["days"]:
+            expiry_ts = int((datetime.now(timezone.utc) + timedelta(days=gamepass_info["days"])).timestamp())
+            expiry_text = f"<t:{expiry_ts}:F>"
+        else:
+            expiry_text = "Lifetime"
+
+        embed = discord.Embed(
+            title="Gamepass Verified & Whitelisted",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Discord User", value=f"{user.mention}", inline=True)
+        embed.add_field(name="Roblox User", value=f"`{roblox_username}`", inline=True)
+        embed.add_field(name="Product", value=f"**{gamepass_info['name']}**", inline=True)
+        embed.add_field(name="Expires", value=expiry_text, inline=True)
+        embed.add_field(name="Verified By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(
+                title="Gamepass Purchase Verified",
+                color=discord.Color.green()
+            )
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Roblox", value=f"`{roblox_username}` (`{roblox_user_id}`)", inline=True)
+            log_embed.add_field(name="Product", value=gamepass_info["name"], inline=True)
+            log_embed.add_field(name="Verified By", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(embed=log_embed)
+
+        # DM user
+        try:
+            dm_embed = discord.Embed(
+                title="You've Been Whitelisted!",
+                description=(
+                    f"Your **{gamepass_info['name']}** gamepass purchase has been verified.\n\n"
+                    f"Go to <#1444457969407492352> and press **Get Script** to get started!"
+                ),
+                color=discord.Color.green()
+            )
+            dm_embed.set_thumbnail(url=BOT_LOGO_URL)
+            await user.send(embed=dm_embed)
+        except:
+            pass
+
+    @discord.app_commands.command(name="revenue", description="View revenue statistics")
+    async def revenue(self, interaction: Interaction):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        now = datetime.now(timezone.utc)
+        week_ago = (now - timedelta(days=7)).isoformat()
+        month_ago = (now - timedelta(days=30)).isoformat()
+        year_ago = (now - timedelta(days=365)).isoformat()
+
+        # SellAuth prices (USD)
+        SELLAUTH_PRICES = {
+            "Week": 5.00,
+            "Month": 10.00,
+            "Lifetime": 25.00
+        }
+
+        # Robux prices (converted to USD at rough rate, no fees)
+        ROBUX_PRICES = {
+            "Week": 700,
+            "Month": 1700,
+            "Lifetime": 4000
+        }
+
+        def calculate_sellauth_revenue(data):
+            total = 0.0
+            for r in data:
+                variant = r.get("variant_name", "")
+                for key, price in SELLAUTH_PRICES.items():
+                    if key.lower() in variant.lower():
+                        total += price
+                        break
+            return total
+
+        def calculate_robux_revenue(data):
+            total = 0
+            for r in data:
+                product_type = r.get("product_type", "")
+                for key, price in ROBUX_PRICES.items():
+                    if key.lower() in product_type.lower():
+                        total += price
+                        break
+            return total
+
+        # Get SellAuth sales (role_redeem table - only Fix it up products)
+        weekly_sellauth = supabase.table("role_redeem").select("variant_name").gte(
+            "redeemed_at", week_ago
+        ).like("product_name", "%Fix it up%").execute()
+        
+        monthly_sellauth = supabase.table("role_redeem").select("variant_name").gte(
+            "redeemed_at", month_ago
+        ).like("product_name", "%Fix it up%").execute()
+        
+        yearly_sellauth = supabase.table("role_redeem").select("variant_name").gte(
+            "redeemed_at", year_ago
+        ).like("product_name", "%Fix it up%").execute()
+
+        # Get Robux sales (gamepass_redemptions table)
+        weekly_robux = supabase.table("gamepass_redemptions").select("product_type").gte(
+            "redeemed_at", week_ago
+        ).execute()
+        
+        monthly_robux = supabase.table("gamepass_redemptions").select("product_type").gte(
+            "redeemed_at", month_ago
+        ).execute()
+        
+        yearly_robux = supabase.table("gamepass_redemptions").select("product_type").gte(
+            "redeemed_at", year_ago
+        ).execute()
+
+        # Calculate totals
+        week_usd = calculate_sellauth_revenue(weekly_sellauth.data or [])
+        month_usd = calculate_sellauth_revenue(monthly_sellauth.data or [])
+        year_usd = calculate_sellauth_revenue(yearly_sellauth.data or [])
+
+        week_robux = calculate_robux_revenue(weekly_robux.data or [])
+        month_robux = calculate_robux_revenue(monthly_robux.data or [])
+        year_robux = calculate_robux_revenue(yearly_robux.data or [])
+
+        embed = discord.Embed(
+            title="Revenue Statistics",
+            description="Revenue before any fees (SellAuth/Stripe/Roblox)",
+            color=discord.Color(EMBED_COLOR)
+        )
+        embed.set_thumbnail(url=BOT_LOGO_URL)
+
+        # Weekly
+        embed.add_field(
+            name="This Week (7 days)",
+            value=(
+                f"**USD:** ${week_usd:.2f}\n"
+                f"**Robux:** R${week_robux:,}\n"
+                f"Sales: {len(weekly_sellauth.data or [])} card/crypto, {len(weekly_robux.data or [])} robux"
+            ),
+            inline=False
+        )
+
+        # Monthly
+        embed.add_field(
+            name="This Month (30 days)",
+            value=(
+                f"**USD:** ${month_usd:.2f}\n"
+                f"**Robux:** R${month_robux:,}\n"
+                f"Sales: {len(monthly_sellauth.data or [])} card/crypto, {len(monthly_robux.data or [])} robux"
+            ),
+            inline=False
+        )
+
+        # Yearly
+        embed.add_field(
+            name="This Year (365 days)",
+            value=(
+                f"**USD:** ${year_usd:.2f}\n"
+                f"**Robux:** R${year_robux:,}\n"
+                f"Sales: {len(yearly_sellauth.data or [])} card/crypto, {len(yearly_robux.data or [])} robux"
+            ),
+            inline=False
+        )
+
+        embed.set_footer(text=f"Stats as of {now.strftime('%Y-%m-%d %H:%M UTC')}")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # -----------------------------
     # VIEW-ONLY COMMANDS (support team can use)
@@ -644,6 +903,187 @@ class Admin(commands.Cog):
             )
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # -----------------------------
+    # NEW COMMANDS
+    # -----------------------------
+
+    @discord.app_commands.command(name="whitelist", description="Manually whitelist a user")
+    @discord.app_commands.describe(user="The user to whitelist", days="Number of days (0 for lifetime)")
+    async def whitelist(self, interaction: Interaction, user: discord.Member, days: int = 0):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Check if user is blacklisted
+        blacklisted = supabase.table("blacklist").select("*").eq(
+            "discord_id", int(user.id)
+        ).limit(1).execute()
+
+        if blacklisted.data:
+            await interaction.followup.send(f"{user.mention} is blacklisted and cannot be whitelisted.", ephemeral=True)
+            return
+
+        # Determine product name based on days
+        if days == 0:
+            product_name = "Script Union - Fix it up (Lifetime)"
+            expiry_text = "Lifetime"
+        elif days <= 7:
+            product_name = "Script Union - Fix it up (Week)"
+            expiry_text = f"{days} days"
+        elif days <= 30:
+            product_name = "Script Union - Fix it up (Month)"
+            expiry_text = f"{days} days"
+        else:
+            product_name = f"Manual Whitelist ({days} days)"
+            expiry_text = f"{days} days"
+
+        # Create Luarmor key
+        luarmor_result = await create_or_update_user(user.id, product_name)
+
+        if not luarmor_result or luarmor_result.get("error"):
+            error_msg = luarmor_result.get("error") if luarmor_result else "Unknown error"
+            await interaction.followup.send(f"Failed to whitelist: {error_msg}", ephemeral=True)
+            return
+
+        # Give role
+        role = interaction.guild.get_role(ACCESS_ROLE_ID)
+        if role and role not in user.roles:
+            try:
+                await user.add_roles(role, reason=f"Manually whitelisted by {interaction.user}")
+            except:
+                pass
+
+        # Calculate expiry for display
+        if days == 0:
+            expiry_display = "Lifetime"
+        else:
+            expiry_ts = int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp())
+            expiry_display = f"<t:{expiry_ts}:F>"
+
+        embed = discord.Embed(title="User Whitelisted", color=discord.Color.green())
+        embed.add_field(name="User", value=f"{user.mention}", inline=True)
+        embed.add_field(name="Duration", value=expiry_text, inline=True)
+        embed.add_field(name="Expires", value=expiry_display, inline=True)
+        embed.add_field(name="Whitelisted By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="Manual Whitelist", color=discord.Color.green())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Duration", value=expiry_text, inline=True)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(embed=log_embed)
+
+        # DM user
+        try:
+            dm_embed = discord.Embed(
+                title="You've Been Whitelisted!",
+                description=(
+                    f"You have been manually whitelisted for **{expiry_text}**.\n\n"
+                    f"Go to <#1444457969407496352> and press **Get Script** to get started!"
+                ),
+                color=discord.Color.green()
+            )
+            dm_embed.set_thumbnail(url=BOT_LOGO_URL)
+            await user.send(embed=dm_embed)
+        except:
+            pass
+
+    @discord.app_commands.command(name="blacklist", description="Blacklist a user from redeeming")
+    @discord.app_commands.describe(user="The user to blacklist", reason="Reason for blacklist")
+    async def blacklist(self, interaction: Interaction, user: discord.Member, reason: str = "No reason provided"):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Check if already blacklisted
+        existing = supabase.table("blacklist").select("*").eq(
+            "discord_id", int(user.id)
+        ).limit(1).execute()
+
+        if existing.data:
+            await interaction.followup.send(f"{user.mention} is already blacklisted.", ephemeral=True)
+            return
+
+        # Remove from Luarmor
+        try:
+            await delete_user_by_discord(user.id)
+        except:
+            pass
+
+        # Remove Premium role
+        role = interaction.guild.get_role(ACCESS_ROLE_ID)
+        if role and role in user.roles:
+            try:
+                await user.remove_roles(role, reason=f"Blacklisted by {interaction.user}")
+            except:
+                pass
+
+        # Add to blacklist table
+        supabase.table("blacklist").insert({
+            "discord_id": int(user.id),
+            "reason": reason,
+            "blacklisted_by": int(interaction.user.id)
+        }).execute()
+
+        embed = discord.Embed(title="User Blacklisted", color=discord.Color.red())
+        embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+        embed.add_field(name="Reason", value=reason, inline=True)
+        embed.add_field(name="Blacklisted By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="User Blacklisted", color=discord.Color.red())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Reason", value=reason, inline=False)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(embed=log_embed)
+
+    @discord.app_commands.command(name="unblacklist", description="Remove a user from the blacklist")
+    @discord.app_commands.describe(user="The user to unblacklist")
+    async def unblacklist(self, interaction: Interaction, user: discord.Member):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Check if blacklisted
+        existing = supabase.table("blacklist").select("*").eq(
+            "discord_id", int(user.id)
+        ).limit(1).execute()
+
+        if not existing.data:
+            await interaction.followup.send(f"{user.mention} is not blacklisted.", ephemeral=True)
+            return
+
+        # Remove from blacklist
+        supabase.table("blacklist").delete().eq("discord_id", int(user.id)).execute()
+
+        embed = discord.Embed(title="User Unblacklisted", color=discord.Color.green())
+        embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+        embed.add_field(name="Removed By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="User Unblacklisted", color=discord.Color.green())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(log_embed)
 
 
 async def setup(bot: commands.Bot):
