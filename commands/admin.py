@@ -1085,8 +1085,9 @@ class Admin(commands.Cog):
         ).limit(1).execute()
 
         if not referral.data:
+            msg = "You don't have a referral code yet." if target == interaction.user else f"{target.mention} doesn't have a referral code yet."
             await interaction.followup.send(
-                f"{'You don' if target == interaction.user else f'{target.mention} doesn'}'} doesn't have a referral code yet. Use `/mycode` to create one!",
+                f"{msg} Use `/mycode` to create one!",
                 ephemeral=True
             )
             return
@@ -1137,3 +1138,4 @@ class Admin(commands.Cog):
 async def setup(bot: commands.Bot):
     await bot.add_cog(Admin(bot))
     print("✅ Loaded cog: admin")
+("✅ Loaded cog: admin")
