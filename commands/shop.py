@@ -445,7 +445,7 @@ class Shop(commands.Cog):
 
         embed.add_field(name="Lifetime", value="**$25 USD**\n4,000 R$", inline=True)
         embed.add_field(name="Month", value="**$10 USD**\n1,700 R$", inline=True)
-        embed.add_field(name="Week", value="**$5 USD**\n700 R$", inline=True)
+        embed.add_field(name="Week", value="**$5 USD**\n750 R$", inline=True)
 
         embed.set_author(name="Script Union Shop", icon_url=BOT_LOGO_URL)
         embed.set_thumbnail(url=BOT_LOGO_URL)

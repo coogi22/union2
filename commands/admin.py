@@ -7,8 +7,7 @@ import random
 import string
 
 from utils.supabase import get_supabase
-from utils.luarmor import get_user_info, add_time_to_user, delete_user_by_discord, create_or_update_user
-from utils.roblox import verify_gamepass_purchase, get_gamepass_info, get_all_gamepasses, GAMEPASSES
+from utils.luarmor import get_user_info, add_time_to_user, delete_user_by_discord, create_or_update_user, compensate_all_users
 
 # -----------------------------
 # CONFIG
@@ -484,7 +483,7 @@ class Admin(commands.Cog):
             return total
 
         def calculate_robux_revenue(data):
-            total = 0
+            total = 0.0
             for r in data:
                 product_type = r.get("product_type", "")
                 for key, price in ROBUX_PRICES.items():
@@ -571,6 +570,237 @@ class Admin(commands.Cog):
         embed.set_footer(text=f"Stats as of {now.strftime('%Y-%m-%d %H:%M UTC')}")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # -----------------------------
+    # NEW COMMANDS
+    # -----------------------------
+
+    @discord.app_commands.command(name="whitelist", description="Manually whitelist a user")
+    @discord.app_commands.describe(user="The user to whitelist", days="Number of days (0 for lifetime)")
+    async def whitelist(self, interaction: Interaction, user: discord.Member, days: int = 0):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Check if user is blacklisted
+        blacklisted = supabase.table("blacklist").select("*").eq(
+            "discord_id", int(user.id)
+        ).limit(1).execute()
+
+        if blacklisted.data:
+            await interaction.followup.send(f"{user.mention} is blacklisted and cannot be whitelisted.", ephemeral=True)
+            return
+
+        # Determine product name based on days
+        if days == 0:
+            product_name = "Script Union - Fix it up (Lifetime)"
+            expiry_text = "Lifetime"
+        elif days <= 7:
+            product_name = "Script Union - Fix it up (Week)"
+            expiry_text = f"{days} days"
+        elif days <= 30:
+            product_name = "Script Union - Fix it up (Month)"
+            expiry_text = f"{days} days"
+        else:
+            product_name = f"Manual Whitelist ({days} days)"
+            expiry_text = f"{days} days"
+
+        # Create Luarmor key
+        luarmor_result = await create_or_update_user(user.id, product_name)
+
+        if not luarmor_result or luarmor_result.get("error"):
+            error_msg = luarmor_result.get("error") if luarmor_result else "Unknown error"
+            await interaction.followup.send(f"Failed to whitelist: {error_msg}", ephemeral=True)
+            return
+
+        # Give role
+        role = interaction.guild.get_role(ACCESS_ROLE_ID)
+        if role and role not in user.roles:
+            try:
+                await user.add_roles(role, reason=f"Manually whitelisted by {interaction.user}")
+            except:
+                pass
+
+        # Calculate expiry for display
+        if days == 0:
+            expiry_display = "Lifetime"
+        else:
+            expiry_ts = int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp())
+            expiry_display = f"<t:{expiry_ts}:F>"
+
+        embed = discord.Embed(title="User Whitelisted", color=discord.Color.green())
+        embed.add_field(name="User", value=f"{user.mention}", inline=True)
+        embed.add_field(name="Duration", value=expiry_text, inline=True)
+        embed.add_field(name="Expires", value=expiry_display, inline=True)
+        embed.add_field(name="Whitelisted By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="Manual Whitelist", color=discord.Color.green())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Duration", value=expiry_text, inline=True)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(embed=log_embed)
+
+        # DM user
+        try:
+            dm_embed = discord.Embed(
+                title="You've Been Whitelisted!",
+                description=(
+                    f"You have been manually whitelisted for **{expiry_text}**.\n\n"
+                    f"Go to <#1444457969407496352> and press **Get Script** to get started!"
+                ),
+                color=discord.Color.green()
+            )
+            dm_embed.set_thumbnail(url=BOT_LOGO_URL)
+            await user.send(embed=dm_embed)
+        except:
+            pass
+
+    @discord.app_commands.command(name="blacklist", description="Blacklist a user from redeeming")
+    @discord.app_commands.describe(user="The user to blacklist", reason="Reason for blacklist")
+    async def blacklist(self, interaction: Interaction, user: discord.Member, reason: str = "No reason provided"):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Check if already blacklisted
+        existing = supabase.table("blacklist").select("*").eq(
+            "discord_id", int(user.id)
+        ).limit(1).execute()
+
+        if existing.data:
+            await interaction.followup.send(f"{user.mention} is already blacklisted.", ephemeral=True)
+            return
+
+        # Remove from Luarmor
+        try:
+            await delete_user_by_discord(user.id)
+        except:
+            pass
+
+        # Remove Premium role
+        role = interaction.guild.get_role(ACCESS_ROLE_ID)
+        if role and role in user.roles:
+            try:
+                await user.remove_roles(role, reason=f"Blacklisted by {interaction.user}")
+            except:
+                pass
+
+        # Add to blacklist table
+        supabase.table("blacklist").insert({
+            "discord_id": int(user.id),
+            "reason": reason,
+            "blacklisted_by": int(interaction.user.id)
+        }).execute()
+
+        embed = discord.Embed(title="User Blacklisted", color=discord.Color.red())
+        embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+        embed.add_field(name="Reason", value=reason, inline=True)
+        embed.add_field(name="Blacklisted By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="User Blacklisted", color=discord.Color.red())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Reason", value=reason, inline=False)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(embed=log_embed)
+
+    @discord.app_commands.command(name="unblacklist", description="Remove a user from the blacklist")
+    @discord.app_commands.describe(user="The user to unblacklist")
+    async def unblacklist(self, interaction: Interaction, user: discord.Member):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Check if blacklisted
+        existing = supabase.table("blacklist").select("*").eq(
+            "discord_id", int(user.id)
+        ).limit(1).execute()
+
+        if not existing.data:
+            await interaction.followup.send(f"{user.mention} is not blacklisted.", ephemeral=True)
+            return
+
+        # Remove from blacklist
+        supabase.table("blacklist").delete().eq("discord_id", int(user.id)).execute()
+
+        embed = discord.Embed(title="User Unblacklisted", color=discord.Color.green())
+        embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+        embed.add_field(name="Removed By", value=f"{interaction.user.mention}", inline=True)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(title="User Unblacklisted", color=discord.Color.green())
+            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(log_embed)
+
+    @discord.app_commands.command(name="compensate", description="Add hours to ALL active whitelist keys (for downtime compensation)")
+    @discord.app_commands.describe(hours="Number of hours to add to all active keys")
+    async def compensate(self, interaction: Interaction, hours: int):
+        if not _is_admin_staff(interaction.user):
+            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+            return
+        
+        if hours <= 0:
+            await interaction.response.send_message("Hours must be greater than 0.", ephemeral=True)
+            return
+        
+        if hours > 168:  # Max 1 week
+            await interaction.response.send_message("Maximum compensation is 168 hours (1 week). For more, run the command multiple times.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Run the compensation
+        result = await compensate_all_users(hours)
+
+        embed = discord.Embed(
+            title="Compensation Complete",
+            description=f"Added **{hours} hours** to all active whitelist keys.",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Total Users", value=str(result["total"]), inline=True)
+        embed.add_field(name="Updated", value=str(result["success"]), inline=True)
+        embed.add_field(name="Skipped", value=f"{result['skipped']} (lifetime/expired)", inline=True)
+        
+        if result["errors"] > 0:
+            embed.add_field(name="Errors", value=str(result["errors"]), inline=True)
+        
+        embed.set_footer(text=f"Issued by {interaction.user}")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Log to channel
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(
+                title="Mass Compensation Issued",
+                description=f"**{hours} hours** added to all active whitelist keys.",
+                color=discord.Color.blue()
+            )
+            log_embed.add_field(name="Users Updated", value=str(result["success"]), inline=True)
+            log_embed.add_field(name="Skipped", value=str(result["skipped"]), inline=True)
+            log_embed.add_field(name="Issued By", value=f"{interaction.user.mention}", inline=True)
+            await log_channel.send(embed=log_embed)
+
 
     # -----------------------------
     # VIEW-ONLY COMMANDS (support team can use)
@@ -855,8 +1085,9 @@ class Admin(commands.Cog):
         ).limit(1).execute()
 
         if not referral.data:
+            msg = "You don't have a referral code yet." if target == interaction.user else f"{target.mention} doesn't have a referral code yet."
             await interaction.followup.send(
-                f"{'You don' if target == interaction.user else f'{target.mention} doesn'}'t have a referral code yet. Use `/mycode` to create one!",
+                f"{msg} Use `/mycode` to create one!",
                 ephemeral=True
             )
             return
@@ -904,188 +1135,7 @@ class Admin(commands.Cog):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    # -----------------------------
-    # NEW COMMANDS
-    # -----------------------------
-
-    @discord.app_commands.command(name="whitelist", description="Manually whitelist a user")
-    @discord.app_commands.describe(user="The user to whitelist", days="Number of days (0 for lifetime)")
-    async def whitelist(self, interaction: Interaction, user: discord.Member, days: int = 0):
-        if not _is_admin_staff(interaction.user):
-            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # Check if user is blacklisted
-        blacklisted = supabase.table("blacklist").select("*").eq(
-            "discord_id", int(user.id)
-        ).limit(1).execute()
-
-        if blacklisted.data:
-            await interaction.followup.send(f"{user.mention} is blacklisted and cannot be whitelisted.", ephemeral=True)
-            return
-
-        # Determine product name based on days
-        if days == 0:
-            product_name = "Script Union - Fix it up (Lifetime)"
-            expiry_text = "Lifetime"
-        elif days <= 7:
-            product_name = "Script Union - Fix it up (Week)"
-            expiry_text = f"{days} days"
-        elif days <= 30:
-            product_name = "Script Union - Fix it up (Month)"
-            expiry_text = f"{days} days"
-        else:
-            product_name = f"Manual Whitelist ({days} days)"
-            expiry_text = f"{days} days"
-
-        # Create Luarmor key
-        luarmor_result = await create_or_update_user(user.id, product_name)
-
-        if not luarmor_result or luarmor_result.get("error"):
-            error_msg = luarmor_result.get("error") if luarmor_result else "Unknown error"
-            await interaction.followup.send(f"Failed to whitelist: {error_msg}", ephemeral=True)
-            return
-
-        # Give role
-        role = interaction.guild.get_role(ACCESS_ROLE_ID)
-        if role and role not in user.roles:
-            try:
-                await user.add_roles(role, reason=f"Manually whitelisted by {interaction.user}")
-            except:
-                pass
-
-        # Calculate expiry for display
-        if days == 0:
-            expiry_display = "Lifetime"
-        else:
-            expiry_ts = int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp())
-            expiry_display = f"<t:{expiry_ts}:F>"
-
-        embed = discord.Embed(title="User Whitelisted", color=discord.Color.green())
-        embed.add_field(name="User", value=f"{user.mention}", inline=True)
-        embed.add_field(name="Duration", value=expiry_text, inline=True)
-        embed.add_field(name="Expires", value=expiry_display, inline=True)
-        embed.add_field(name="Whitelisted By", value=f"{interaction.user.mention}", inline=True)
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-        # Log
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = discord.Embed(title="Manual Whitelist", color=discord.Color.green())
-            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
-            log_embed.add_field(name="Duration", value=expiry_text, inline=True)
-            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
-            await log_channel.send(embed=log_embed)
-
-        # DM user
-        try:
-            dm_embed = discord.Embed(
-                title="You've Been Whitelisted!",
-                description=(
-                    f"You have been manually whitelisted for **{expiry_text}**.\n\n"
-                    f"Go to <#1444457969407496352> and press **Get Script** to get started!"
-                ),
-                color=discord.Color.green()
-            )
-            dm_embed.set_thumbnail(url=BOT_LOGO_URL)
-            await user.send(embed=dm_embed)
-        except:
-            pass
-
-    @discord.app_commands.command(name="blacklist", description="Blacklist a user from redeeming")
-    @discord.app_commands.describe(user="The user to blacklist", reason="Reason for blacklist")
-    async def blacklist(self, interaction: Interaction, user: discord.Member, reason: str = "No reason provided"):
-        if not _is_admin_staff(interaction.user):
-            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # Check if already blacklisted
-        existing = supabase.table("blacklist").select("*").eq(
-            "discord_id", int(user.id)
-        ).limit(1).execute()
-
-        if existing.data:
-            await interaction.followup.send(f"{user.mention} is already blacklisted.", ephemeral=True)
-            return
-
-        # Remove from Luarmor
-        try:
-            await delete_user_by_discord(user.id)
-        except:
-            pass
-
-        # Remove Premium role
-        role = interaction.guild.get_role(ACCESS_ROLE_ID)
-        if role and role in user.roles:
-            try:
-                await user.remove_roles(role, reason=f"Blacklisted by {interaction.user}")
-            except:
-                pass
-
-        # Add to blacklist table
-        supabase.table("blacklist").insert({
-            "discord_id": int(user.id),
-            "reason": reason,
-            "blacklisted_by": int(interaction.user.id)
-        }).execute()
-
-        embed = discord.Embed(title="User Blacklisted", color=discord.Color.red())
-        embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
-        embed.add_field(name="Reason", value=reason, inline=True)
-        embed.add_field(name="Blacklisted By", value=f"{interaction.user.mention}", inline=True)
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-        # Log
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = discord.Embed(title="User Blacklisted", color=discord.Color.red())
-            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
-            log_embed.add_field(name="Reason", value=reason, inline=False)
-            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
-            await log_channel.send(embed=log_embed)
-
-    @discord.app_commands.command(name="unblacklist", description="Remove a user from the blacklist")
-    @discord.app_commands.describe(user="The user to unblacklist")
-    async def unblacklist(self, interaction: Interaction, user: discord.Member):
-        if not _is_admin_staff(interaction.user):
-            await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        # Check if blacklisted
-        existing = supabase.table("blacklist").select("*").eq(
-            "discord_id", int(user.id)
-        ).limit(1).execute()
-
-        if not existing.data:
-            await interaction.followup.send(f"{user.mention} is not blacklisted.", ephemeral=True)
-            return
-
-        # Remove from blacklist
-        supabase.table("blacklist").delete().eq("discord_id", int(user.id)).execute()
-
-        embed = discord.Embed(title="User Unblacklisted", color=discord.Color.green())
-        embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
-        embed.add_field(name="Removed By", value=f"{interaction.user.mention}", inline=True)
-
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-        # Log
-        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = discord.Embed(title="User Unblacklisted", color=discord.Color.green())
-            log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
-            log_embed.add_field(name="Staff", value=f"{interaction.user.mention}", inline=True)
-            await log_channel.send(log_embed)
-
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(Admin(bot))
     print("✅ Loaded cog: admin")
+("✅ Loaded cog: admin")
