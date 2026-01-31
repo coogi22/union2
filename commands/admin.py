@@ -593,17 +593,12 @@ class Admin(commands.Cog):
             await interaction.followup.send(f"{user.mention} is blacklisted and cannot be whitelisted.", ephemeral=True)
             return
 
-        # Determine product name based on days
+        # Determine product name based on days - use exact days for proper expiry
         if days == 0:
             product_name = "Script Union - Fix it up (Lifetime)"
             expiry_text = "Lifetime"
-        elif days <= 7:
-            product_name = "Script Union - Fix it up (Week)"
-            expiry_text = f"{days} days"
-        elif days <= 30:
-            product_name = "Script Union - Fix it up (Month)"
-            expiry_text = f"{days} days"
         else:
+            # Always use exact days so Luarmor computes correct expiry
             product_name = f"Manual Whitelist ({days} days)"
             expiry_text = f"{days} days"
 
