@@ -618,12 +618,30 @@ class Admin(commands.Cog):
             except:
                 pass
 
-        # Calculate expiry for display
+        # Calculate expiry
         if days == 0:
             expiry_display = "Lifetime"
+            expires_at = None
         else:
-            expiry_ts = int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp())
+            expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+            expiry_ts = int(expires_at.timestamp())
             expiry_display = f"<t:{expiry_ts}:F>"
+
+        # Save to role_redeem so auto-expiry task can track it
+        luarmor_key = luarmor_result.get("user_key", "")
+        try:
+            supabase.table("role_redeem").insert({
+                "invoice_id": f"manual-{user.id}-{int(datetime.now(timezone.utc).timestamp())}",
+                "discord_id": int(user.id),
+                "product_name": product_name,
+                "variant_name": f"Manual ({days} days)" if days > 0 else "Manual (Lifetime)",
+                "redeemed_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": expires_at.isoformat() if expires_at else None,
+                "whitelisted": True,
+                "luarmor_key": luarmor_key
+            }).execute()
+        except Exception as e:
+            print(f"[WHITELIST DB ERROR] {e}")
 
         embed = discord.Embed(title="User Whitelisted", color=discord.Color.green())
         embed.add_field(name="User", value=f"{user.mention}", inline=True)
