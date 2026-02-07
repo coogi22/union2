@@ -402,12 +402,6 @@ class ShopView(ui.View):
     async def redeem_order(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_modal(RedeemOrderModal(self.bot))
 
-    @ui.button(label="Open Ticket", style=discord.ButtonStyle.secondary)
-    async def open_ticket(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.defer(ephemeral=True)
-        channel = await create_or_get_ticket_channel(interaction.guild, interaction.user)
-        await interaction.followup.send(f"Ticket ready: {channel.mention}", ephemeral=True)
-
 
 # -----------------------------
 # COG
@@ -438,7 +432,7 @@ class Shop(commands.Cog):
                 "3) Automatically receive your key, Premium role & whitelist!\n\n"
                 "*Card & crypto payments are instant and automatic!*\n\n"
                 "**Paying with Robux?**\n"
-                "Open a ticket and a staff member will assist you."
+                "Head to <#1459670755137818648> to open a ticket!"
             ),
             color=discord.Color(EMBED_COLOR),
         )
