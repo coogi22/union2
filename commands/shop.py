@@ -311,6 +311,11 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                 except Exception as e:
                     print(f"[REFERRAL ERROR] {e}")
 
+            # Use Luarmor's actual stacked expiry for the DB if available
+            actual_expires_at = expires_at
+            if luarmor_expiry:
+                actual_expires_at = luarmor_expiry.isoformat()
+
             supabase.table("role_redeem").insert({
                 "role_id": int(ACCESS_ROLE_ID),
                 "redeemed": True,
@@ -319,7 +324,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                 "product_name": product_name,
                 "variant_name": variant_name,
                 "discord_id": int(member.id),
-                "expires_at": expires_at,
+                "expires_at": actual_expires_at,
                 "redeemed_at": datetime.now(timezone.utc).isoformat(),
                 "luarmor_key": luarmor_key,
                 "whitelisted": True if luarmor_key else False,
@@ -340,12 +345,12 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                 else:
                     embed.add_field(name="Whitelist Status", value="Failed - manual whitelist needed", inline=False)
 
-                if expires_at:
+                if actual_expires_at:
                     try:
-                        ts = int(datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp())
+                        ts = int(datetime.fromisoformat(actual_expires_at.replace("Z", "+00:00")).timestamp())
                         embed.add_field(name="Expires", value=f"<t:{ts}:F>", inline=False)
                     except Exception:
-                        embed.add_field(name="Expires", value=f"`{expires_at}`", inline=False)
+                        embed.add_field(name="Expires", value=f"`{actual_expires_at}`", inline=False)
                 else:
                     embed.add_field(name="Expires", value="Lifetime", inline=False)
                 

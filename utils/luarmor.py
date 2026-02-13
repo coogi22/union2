@@ -121,17 +121,40 @@ async def create_or_update_user(
             return None
 
         print(f"[LUARMOR] Found existing user: {user.get('user_key')}")
-        updated = await update_user_expiry(user["user_key"], auth_expire)
+
+        # Stack durations: add new time on top of remaining time
+        current_expire = user.get("auth_expire")
+        now = int(datetime.now(timezone.utc).timestamp())
+
+        if auth_expire is not None and auth_expire != -1:
+            # Calculate how many seconds the new purchase adds
+            new_duration = auth_expire - now
+
+            if current_expire is not None and current_expire != -1 and current_expire > now:
+                # User still has active time - stack on top of remaining
+                stacked_expire = current_expire + new_duration
+                print(f"[LUARMOR] Stacking: current expires {current_expire}, adding {new_duration}s, new expire {stacked_expire}")
+            else:
+                # User expired or no expiry - start from now
+                stacked_expire = auth_expire
+                print(f"[LUARMOR] No active time, setting expire to {stacked_expire}")
+        else:
+            # Lifetime purchase
+            stacked_expire = -1
+            print("[LUARMOR] Lifetime purchase, setting to never expire")
+
+        updated = await update_user_expiry(user["user_key"], stacked_expire)
         if not updated:
             print("[LUARMOR] ❌ Failed to update existing user")
             return None
 
-        print(f"[LUARMOR] ✅ Updated existing user: {user.get('user_key')}")
+        final_expire = stacked_expire if stacked_expire != -1 else None
+        print(f"[LUARMOR] ✅ Updated existing user: {user.get('user_key')} with stacked expiry")
         return {
             "user_key": user["user_key"],
             "expires_at": (
-                datetime.fromtimestamp(auth_expire, tz=timezone.utc)
-                if auth_expire and auth_expire != -1
+                datetime.fromtimestamp(final_expire, tz=timezone.utc)
+                if final_expire
                 else None
             ),
         }
