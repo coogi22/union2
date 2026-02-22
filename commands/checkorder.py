@@ -7,7 +7,7 @@ from aiohttp import ClientTimeout
 from datetime import datetime, timezone
 from typing import Optional
 
-from utils.supabase import get_supabase
+from utils.db import get_supabase
 
 # -----------------------------
 # CONFIG
@@ -102,7 +102,7 @@ class CopyOrderView(discord.ui.View):
 
     @discord.ui.button(label="Copy Order ID", style=discord.ButtonStyle.primary)
     async def copy_order_id(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"\`\`\`{self.invoice_id}\`\`\`", ephemeral=True)
+        await interaction.response.send_message(f"```{self.invoice_id}```", ephemeral=True)
 
 def staff_only():
     async def predicate(interaction: discord.Interaction) -> bool:
