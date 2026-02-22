@@ -1,0 +1,16 @@
+{
+  "buttons": [
+    {
+      "ButtonName": "Claim Fortnite Pack",
+      "ButtonColor": "green",
+      "ButtonProductPath": "./products/fortnite_pack.zip",
+      "RedeemRole": "1438358929187934310"
+    },
+    {
+      "ButtonName": "Claim Minecraft Mod",
+      "ButtonColor": "blurple",
+      "ButtonProductPath": "./products/mc_mod.zip",
+      "RedeemRole": "143900000000000000"
+    }
+  ]
+}
