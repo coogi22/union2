@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 from discord import app_commands, ui, Interaction
 import json
 import os
-from utils.db import get_supabase
+from utils.supabase import get_supabase
 
 supabase = get_supabase()
 

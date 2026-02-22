@@ -7,7 +7,7 @@ from aiohttp import ClientTimeout
 from datetime import datetime, timezone
 from typing import Optional
 
-from utils.db import get_supabase
+from utils.supabase import get_supabase
 
 # -----------------------------
 # CONFIG

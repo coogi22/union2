@@ -7,7 +7,7 @@ from aiohttp import ClientTimeout
 from datetime import datetime, timezone, timedelta
 import traceback
 
-from utils.db import get_supabase
+from utils.supabase import get_supabase
 from utils.luarmor import create_luarmor_key, get_user_by_discord, compute_expiry_timestamp
 
 # -----------------------------

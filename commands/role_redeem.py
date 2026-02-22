@@ -1,7 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands, Interaction
-from utils.db import get_supabase
+from utils.supabase import get_supabase
 
 GUILD_ID = 1432550511495610472
 EXTRA_ROLE_ID = 1438358929187934310

@@ -4,7 +4,7 @@ from discord import ui, Interaction
 from datetime import datetime, timezone, timedelta
 import io
 
-from utils.db import get_supabase
+from utils.supabase import get_supabase
 
 # -----------------------------
 # CONFIG
