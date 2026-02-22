@@ -6,7 +6,7 @@ import aiohttp
 from aiohttp import ClientTimeout
 from datetime import datetime, timezone, timedelta
 
-from utils.db import get_supabase
+from utils.supabase import get_supabase
 from commands.tickets import create_or_get_ticket_channel, CloseTicketView
 from utils.luarmor import create_or_update_user, compute_expiry_timestamp, get_user_info, add_time_to_user
 
