@@ -331,8 +331,19 @@ class Admin(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
+        try:
+            return await self._do_verifygamepass(interaction, user, roblox_username, gamepass)
+        except Exception as e:
+            print(f"[VERIFYGAMEPASS ERROR] {e}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"Error: {e}", ephemeral=True)
+
+    async def _do_verifygamepass(self, interaction: Interaction, user: discord.Member, roblox_username: str, gamepass: int):
         # Verify gamepass ownership via Roblox API
+        print(f"[VERIFYGAMEPASS] Checking {roblox_username} for gamepass {gamepass}...")
         success, roblox_user_id, message = await verify_gamepass_purchase(roblox_username, gamepass)
+        print(f"[VERIFYGAMEPASS] Result: success={success}, user_id={roblox_user_id}, msg={message}")
         
         if not success:
             embed = discord.Embed(
