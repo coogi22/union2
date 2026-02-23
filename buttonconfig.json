@@ -1,0 +1,10 @@
+{
+  "buttons": [
+    {
+      "ButtonName": "Claim Fortnite Pack",
+      "ButtonColor": "green",
+      "ButtonProductPath": "./Products/Vouch-Bot.zip",
+      "RedeemRole": "1439009409522077898"
+    }
+  ]
+}

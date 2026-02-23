@@ -1,0 +1,15 @@
+[Unit]
+Description=ShopBot Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ShopBot
+ExecStart=/root/ShopBot/venv/bin/python main.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/root/ShopBot/.env
+
+[Install]
+WantedBy=multi-user.target
