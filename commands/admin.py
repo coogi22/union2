@@ -8,6 +8,7 @@ import string
 
 from utils.supabase import get_supabase
 from utils.luarmor import get_user_info, add_time_to_user, delete_user_by_discord, create_or_update_user, compensate_all_users
+from utils.roblox import verify_gamepass_purchase, get_gamepass_info
 
 # -----------------------------
 # CONFIG
