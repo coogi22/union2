@@ -348,7 +348,7 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
         embed.add_field(
             name="Gamepasses",
             value=(
-                "• [Week - 750 Robux](https://www.roblox.com/game-pass/1740966992/750\n"
+                "• [Week - 750 Robux](https://www.roblox.com/game-pass/1740966992/750)\n"
                 "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/1740773120/1700)\n"
                 "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/843404211/4k)"
             ),
