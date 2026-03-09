@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import io
 
 from utils.supabase import get_supabase
+from utils.roblox import GAMEPASSES
 
 # -----------------------------
 # CONFIG
@@ -55,6 +56,119 @@ def _get_ticket_id_from_topic(topic: str | None) -> int | None:
     return None
 
 
+# Robux duration selection for new ticket flow
+class RobuxDurationSelect(ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(
+                label="Week - 750 Robux",
+                description="7 days of access",
+                emoji="📅",
+                value="week"
+            ),
+            discord.SelectOption(
+                label="Month - 1,700 Robux",
+                description="30 days of access",
+                emoji="📆",
+                value="month"
+            ),
+            discord.SelectOption(
+                label="Lifetime - 4,000 Robux",
+                description="Permanent access forever",
+                emoji="♾️",
+                value="lifetime"
+            ),
+        ]
+        super().__init__(
+            placeholder="Select duration...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="robux_duration_select_v1"
+        )
+
+    async def callback(self, interaction: Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return
+
+        duration = self.values[0]
+        
+        # Get gamepass info based on duration
+        gamepass_map = {
+            "week": 1740966992,
+            "month": 1740773120,
+            "lifetime": 843404211
+        }
+        gamepass_id = gamepass_map.get(duration)
+        gamepass_info = GAMEPASSES.get(gamepass_id, {})
+        gamepass_url = gamepass_info.get("url", "")
+        gamepass_price = gamepass_info.get("price", 0)
+        gamepass_name = gamepass_info.get("name", duration.capitalize())
+        
+        # Show the gamepass link and ask for username via modal
+        await interaction.response.send_modal(RobuxUsernameModal(duration, gamepass_url, gamepass_name, gamepass_price))
+
+
+class RobuxDurationView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.add_item(RobuxDurationSelect())
+
+
+class RobuxUsernameModal(ui.Modal):
+    def __init__(self, duration: str, gamepass_url: str, gamepass_name: str, gamepass_price: int):
+        super().__init__(title=f"Robux Payment - {gamepass_name}")
+        self.duration = duration
+        self.gamepass_url = gamepass_url
+        self.gamepass_name = gamepass_name
+        self.gamepass_price = gamepass_price
+        
+        self.username = ui.TextInput(
+            label="Your Roblox Username",
+            placeholder="Enter your exact Roblox username",
+            required=True,
+            max_length=20
+        )
+        self.add_item(self.username)
+
+    async def on_submit(self, interaction: Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return
+        
+        roblox_username = self.username.value.strip()
+        
+        # Create the ticket with robux reason and extra info
+        channel = await create_or_get_ticket_channel(
+            interaction.guild, 
+            interaction.user, 
+            "robux",
+            robux_info={
+                "duration": self.duration,
+                "gamepass_url": self.gamepass_url,
+                "gamepass_name": self.gamepass_name,
+                "gamepass_price": self.gamepass_price,
+                "roblox_username": roblox_username
+            }
+        )
+        
+        if channel:
+            await interaction.response.send_message(
+                f"Your ticket has been created: {channel.mention}\n\n"
+                f"**Duration:** {self.gamepass_name} ({self.gamepass_price:,} Robux)\n"
+                f"**Gamepass Link:** {self.gamepass_url}\n"
+                f"**Roblox Username:** {roblox_username}\n\n"
+                f"Please purchase the gamepass and provide a screenshot in your ticket.",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Failed to create ticket. Please contact staff.",
+                ephemeral=True
+            )
+
+
 class TicketReasonSelect(ui.Select):
     def __init__(self):
         options = [
@@ -92,7 +206,26 @@ class TicketReasonSelect(ui.Select):
 
         reason = self.values[0]
         
-        # Create ticket with reason
+        if reason == "robux":
+            # Show duration selection first
+            embed = discord.Embed(
+                title="Select Duration",
+                description="Which subscription duration would you like to purchase?",
+                color=discord.Color(EMBED_COLOR)
+            )
+            embed.add_field(
+                name="Available Options",
+                value=(
+                    "**Week** - 750 Robux (7 days)\n"
+                    "**Month** - 1,700 Robux (30 days)\n"
+                    "**Lifetime** - 4,000 Robux (Forever)"
+                ),
+                inline=False
+            )
+            await interaction.response.send_message(embed=embed, view=RobuxDurationView(), ephemeral=True)
+            return
+        
+        # For non-robux tickets, create directly
         channel = await create_or_get_ticket_channel(interaction.guild, interaction.user, reason)
         
         if channel:
@@ -237,7 +370,7 @@ class CloseTicketView(ui.View):
             pass
 
 
-async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Member, reason: str = "other") -> discord.TextChannel | None:
+async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Member, reason: str = "other", robux_info: dict = None) -> discord.TextChannel | None:
     # Fetch category
     category = guild.get_channel(TICKET_CATEGORY_ID)
     if category is None:
@@ -340,29 +473,62 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
         await log_ch.send(embed=embed_open)
 
     if reason == "robux":
-        embed = discord.Embed(
-            title="Robux Payment",
-            description="Thanks for purchasing with Robux!",
-            color=discord.Color(EMBED_COLOR),
-        )
-        embed.add_field(
-            name="Gamepasses",
-            value=(
-                "• [Week - 750 Robux](https://www.roblox.com/game-pass/1740966992/750)\n"
-                "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/1740773120/1700)\n"
-                "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/843404211/4k)"
-            ),
-            inline=False
-        )
-        embed.add_field(
-            name="Please Provide",
-            value=(
-                "1. Screenshot proof of your purchase\n"
-                "2. Your Roblox username\n"
-                "3. Which gamepass you purchased (Week/Month/Lifetime)"
-            ),
-            inline=False
-        )
+        if robux_info:
+            # New flow with pre-selected duration and username
+            embed = discord.Embed(
+                title="Robux Payment",
+                description="Thanks for opening a Robux payment ticket!",
+                color=discord.Color(EMBED_COLOR),
+            )
+            embed.add_field(
+                name="Selected Plan",
+                value=f"**{robux_info.get('gamepass_name', 'Unknown')}** - {robux_info.get('gamepass_price', 0):,} Robux",
+                inline=True
+            )
+            embed.add_field(
+                name="Roblox Username",
+                value=f"**{robux_info.get('roblox_username', 'Not provided')}**",
+                inline=True
+            )
+            embed.add_field(
+                name="Gamepass Link",
+                value=f"[Click here to purchase]({robux_info.get('gamepass_url', '')})",
+                inline=False
+            )
+            embed.add_field(
+                name="Next Steps",
+                value=(
+                    "1. Click the link above to purchase the gamepass\n"
+                    "2. Send a screenshot of your purchase confirmation here\n"
+                    "3. Wait for staff to verify and activate your subscription"
+                ),
+                inline=False
+            )
+        else:
+            # Fallback for old flow (shouldn't happen with new system)
+            embed = discord.Embed(
+                title="Robux Payment",
+                description="Thanks for purchasing with Robux!",
+                color=discord.Color(EMBED_COLOR),
+            )
+            embed.add_field(
+                name="Gamepasses",
+                value=(
+                    "• [Week - 750 Robux](https://www.roblox.com/game-pass/1740966992/750)\n"
+                    "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/1740773120/1700)\n"
+                    "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/843404211/4k)"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="Please Provide",
+                value=(
+                    "1. Screenshot proof of your purchase\n"
+                    "2. Your Roblox username\n"
+                    "3. Which gamepass you purchased (Week/Month/Lifetime)"
+                ),
+                inline=False
+            )
     elif reason == "support":
         embed = discord.Embed(
             title="Support Request",
