@@ -3,9 +3,9 @@ from typing import Optional, Tuple
 
 # Gamepass IDs and prices (in Robux, before fees)
 GAMEPASSES = {
-    109857815: {"name": "Week", "price": 700, "days": 7},
-    129890883: {"name": "Month", "price": 1700, "days": 30},
-    125899946: {"name": "Lifetime", "price": 4000, "days": None}  # None = lifetime
+    1740966992: {"name": "Week", "price": 750, "days": 7, "url": "https://www.roblox.com/game-pass/1740966992/750"},
+    1740773120: {"name": "Month", "price": 1700, "days": 30, "url": "https://www.roblox.com/game-pass/1740773120/1700"},
+    843404211: {"name": "Lifetime", "price": 4000, "days": None, "url": "https://www.roblox.com/game-pass/843404211/4k"}  # None = lifetime
 }
 
 async def get_user_id_from_username(username: str) -> Optional[int]:
