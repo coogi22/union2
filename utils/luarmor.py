@@ -11,6 +11,11 @@ LUARMOR_PROJECT_ID = (os.getenv("LUARMOR_PROJECT_ID") or "").strip()
 
 BASE_URL = "https://api.luarmor.net/v3"
 
+
+def _resolve_project_id(project_id: Optional[str] = None) -> str:
+    """Return the given project_id, or fall back to the default Fix-It-Up project."""
+    return (project_id or LUARMOR_PROJECT_ID or "").strip()
+
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds (exponential backoff)
 
@@ -73,15 +78,17 @@ async def create_or_update_user(
     discord_id: int,
     plan_name: str,
     note: str = "",
+    project_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Creates a Luarmor user or updates expiry if they already exist.
     Returns dict: { user_key, expires_at } or None on failure.
     """
+    project_id = _resolve_project_id(project_id)
     print(f"[LUARMOR] create_or_update_user called for discord_id={discord_id}, plan={plan_name}")
-    print(f"[LUARMOR] API_KEY present: {bool(LUARMOR_API_KEY)}, PROJECT_ID: {LUARMOR_PROJECT_ID}")
+    print(f"[LUARMOR] API_KEY present: {bool(LUARMOR_API_KEY)}, PROJECT_ID: {project_id}")
 
-    if not LUARMOR_API_KEY or not LUARMOR_PROJECT_ID:
+    if not LUARMOR_API_KEY or not project_id:
         print("[LUARMOR] ❌ API key or project ID not configured")
         return None
 
@@ -96,7 +103,7 @@ async def create_or_update_user(
     if auth_expire is not None and auth_expire != -1:
         payload["auth_expire"] = auth_expire
 
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
+    url = f"{BASE_URL}/projects/{project_id}/users"
 
     timeout = ClientTimeout(total=15)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -115,7 +122,7 @@ async def create_or_update_user(
 
         # User might already exist - try to fetch and update
         print("[LUARMOR] User may exist, attempting to fetch and update...")
-        user = await get_user_by_discord(discord_id)
+        user = await get_user_by_discord(discord_id, project_id=project_id)
         if not user:
             print("[LUARMOR] ❌ Could not find existing user")
             return None
@@ -143,7 +150,7 @@ async def create_or_update_user(
             stacked_expire = -1
             print("[LUARMOR] Lifetime purchase, setting to never expire")
 
-        updated = await update_user_expiry(user["user_key"], stacked_expire)
+        updated = await update_user_expiry(user["user_key"], stacked_expire, project_id=project_id)
         if not updated:
             print("[LUARMOR] ❌ Failed to update existing user")
             return None
@@ -160,12 +167,13 @@ async def create_or_update_user(
         }
 
 
-async def get_user_by_discord(discord_id: int) -> Optional[Dict[str, Any]]:
+async def get_user_by_discord(discord_id: int, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Get a Luarmor user by their Discord ID."""
-    if not LUARMOR_API_KEY or not LUARMOR_PROJECT_ID:
+    project_id = _resolve_project_id(project_id)
+    if not LUARMOR_API_KEY or not project_id:
         return None
 
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
+    url = f"{BASE_URL}/projects/{project_id}/users"
     params = {"discord_id": str(discord_id)}
 
     timeout = ClientTimeout(total=10)
@@ -176,9 +184,10 @@ async def get_user_by_discord(discord_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def update_user_expiry(user_key: str, auth_expire: Optional[int]) -> bool:
+async def update_user_expiry(user_key: str, auth_expire: Optional[int], project_id: Optional[str] = None) -> bool:
     """Update an existing Luarmor user's expiry."""
-    if not LUARMOR_API_KEY or not LUARMOR_PROJECT_ID:
+    project_id = _resolve_project_id(project_id)
+    if not LUARMOR_API_KEY or not project_id:
         return False
 
     payload = {
@@ -186,7 +195,7 @@ async def update_user_expiry(user_key: str, auth_expire: Optional[int]) -> bool:
         "auth_expire": auth_expire if auth_expire is not None else -1,
     }
 
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
+    url = f"{BASE_URL}/projects/{project_id}/users"
 
     timeout = ClientTimeout(total=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -247,12 +256,13 @@ def compute_expiry_timestamp(product_name: str | None, variant_name: str | None)
     return -1  # Default to lifetime
 
 
-async def get_user_info(discord_id: int) -> Optional[Dict[str, Any]]:
+async def get_user_info(discord_id: int, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Get full Luarmor user info including expiry."""
-    if not LUARMOR_API_KEY or not LUARMOR_PROJECT_ID:
+    project_id = _resolve_project_id(project_id)
+    if not LUARMOR_API_KEY or not project_id:
         return None
 
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
+    url = f"{BASE_URL}/projects/{project_id}/users"
     params = {"discord_id": str(discord_id)}
 
     timeout = ClientTimeout(total=10)
@@ -263,9 +273,10 @@ async def get_user_info(discord_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def add_time_to_user(discord_id: int, days: int) -> Optional[Dict[str, Any]]:
+async def add_time_to_user(discord_id: int, days: int, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Add days to a user's expiry. Returns updated user info or None."""
-    user = await get_user_info(discord_id)
+    project_id = _resolve_project_id(project_id)
+    user = await get_user_info(discord_id, project_id=project_id)
     if not user:
         return None
     
@@ -285,7 +296,7 @@ async def add_time_to_user(discord_id: int, days: int) -> Optional[Dict[str, Any
     else:
         new_expire = current_expire + (days * 86400)
     
-    success = await update_user_expiry(user_key, new_expire)
+    success = await update_user_expiry(user_key, new_expire, project_id=project_id)
     if success:
         return {
             "user_key": user_key,

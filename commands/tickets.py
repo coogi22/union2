@@ -169,6 +169,101 @@ class RobuxUsernameModal(ui.Modal):
             )
 
 
+# Support ticket modal - asks for issue description
+class SupportTicketModal(ui.Modal):
+    def __init__(self):
+        super().__init__(title="Support Ticket")
+        
+        self.issue = ui.TextInput(
+            label="Describe your issue",
+            placeholder="Please explain what you need help with...",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=1000
+        )
+        self.add_item(self.issue)
+        
+        self.tried = ui.TextInput(
+            label="What have you tried so far?",
+            placeholder="Any troubleshooting steps you've already taken...",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500
+        )
+        self.add_item(self.tried)
+
+    async def on_submit(self, interaction: Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return
+        
+        issue_text = self.issue.value.strip()
+        tried_text = self.tried.value.strip() if self.tried.value else None
+        
+        channel = await create_or_get_ticket_channel(
+            interaction.guild, 
+            interaction.user, 
+            "support",
+            ticket_info={
+                "issue": issue_text,
+                "tried": tried_text
+            }
+        )
+        
+        if channel:
+            await interaction.response.send_message(
+                f"Your support ticket has been created: {channel.mention}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Failed to create ticket. Please contact staff.",
+                ephemeral=True
+            )
+
+
+# Other ticket modal - asks for reason
+class OtherTicketModal(ui.Modal):
+    def __init__(self):
+        super().__init__(title="Create Ticket")
+        
+        self.reason = ui.TextInput(
+            label="What is this ticket about?",
+            placeholder="Briefly describe the reason for your ticket...",
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=1000
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: Interaction):
+        if not interaction.guild or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
+            return
+        
+        reason_text = self.reason.value.strip()
+        
+        channel = await create_or_get_ticket_channel(
+            interaction.guild, 
+            interaction.user, 
+            "other",
+            ticket_info={
+                "reason": reason_text
+            }
+        )
+        
+        if channel:
+            await interaction.response.send_message(
+                f"Your ticket has been created: {channel.mention}",
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Failed to create ticket. Please contact staff.",
+                ephemeral=True
+            )
+
+
 class TicketReasonSelect(ui.Select):
     def __init__(self):
         options = [
@@ -225,19 +320,15 @@ class TicketReasonSelect(ui.Select):
             await interaction.response.send_message(embed=embed, view=RobuxDurationView(), ephemeral=True)
             return
         
-        # For non-robux tickets, create directly
-        channel = await create_or_get_ticket_channel(interaction.guild, interaction.user, reason)
+        if reason == "support":
+            # Show support modal
+            await interaction.response.send_modal(SupportTicketModal())
+            return
         
-        if channel:
-            await interaction.response.send_message(
-                f"Your ticket has been created: {channel.mention}",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                "Failed to create ticket. Please contact staff.",
-                ephemeral=True
-            )
+        if reason == "other":
+            # Show other modal
+            await interaction.response.send_modal(OtherTicketModal())
+            return
 
 
 class TicketReasonView(ui.View):
@@ -370,7 +461,7 @@ class CloseTicketView(ui.View):
             pass
 
 
-async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Member, reason: str = "other", robux_info: dict = None) -> discord.TextChannel | None:
+async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Member, reason: str = "other", robux_info: dict = None, ticket_info: dict = None) -> discord.TextChannel | None:
     # Fetch category
     category = guild.get_channel(TICKET_CATEGORY_ID)
     if category is None:
@@ -532,15 +623,27 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
     elif reason == "support":
         embed = discord.Embed(
             title="Support Request",
-            description="We're here to help! Please provide the following information:",
+            description="We're here to help!",
             color=discord.Color(EMBED_COLOR),
         )
+        if ticket_info:
+            embed.add_field(
+                name="Issue Description",
+                value=ticket_info.get("issue", "No description provided"),
+                inline=False
+            )
+            if ticket_info.get("tried"):
+                embed.add_field(
+                    name="Already Tried",
+                    value=ticket_info.get("tried"),
+                    inline=False
+                )
         embed.add_field(
-            name="Please Provide",
+            name="Additional Info Needed",
             value=(
-                "1. Detailed explanation of your issue\n"
-                "2. What executor you are using\n"
-                "3. Screenshot of your console/error logs"
+                "Please also provide:\n"
+                "1. What executor you are using\n"
+                "2. Screenshot of your console/error logs"
             ),
             inline=False
         )
@@ -548,9 +651,15 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
     else:
         embed = discord.Embed(
             title="Support Ticket",
-            description="Thanks for opening a ticket! Please describe what you need help with.",
+            description="Thanks for opening a ticket!",
             color=discord.Color(EMBED_COLOR),
         )
+        if ticket_info:
+            embed.add_field(
+                name="Reason",
+                value=ticket_info.get("reason", "No reason provided"),
+                inline=False
+            )
 
     staff_mentions = " ".join(f"<@&{rid}>" for rid in STAFF_ROLE_IDS)
     await ch.send(content=f"{staff_mentions}\n<@{member.id}>", embed=embed, view=CloseTicketView())

@@ -27,7 +27,22 @@ EMBED_COLOR = 0x489BF3
 SELLAUTH_API_KEY = (os.getenv("SELLAUTH_API_KEY") or "").strip()
 SELLAUTH_SHOP_ID = (os.getenv("SELLAUTH_SHOP_ID") or "").strip()
 
-WHITELIST_PRODUCTS = ["fix it up", "fix-it-up", "fixitup"]
+# Default Luarmor project (Fix-It-Up) comes from LUARMOR_PROJECT_ID env var.
+LUARMOR_PROJECT_ID = (os.getenv("LUARMOR_PROJECT_ID") or "").strip()
+
+# Map product-name keywords to their Luarmor project IDs.
+# Each entry: list of lowercase keywords -> Luarmor project ID for that script.
+# Add more scripts here as you launch them.
+LUARMOR_PROJECT_ROUTES = [
+    {
+        "keywords": ["fix it up", "fix-it-up", "fixitup"],
+        "project_id": LUARMOR_PROJECT_ID,  # default Fix-It-Up project
+    },
+    {
+        "keywords": ["corsa legends", "corsa-legends", "corsalegends", "corsa"],
+        "project_id": "41aa3309f65c5f894bf7b5bdf46555bb",  # Corsa Legends project
+    },
+]
 
 supabase = get_supabase()
 
@@ -85,10 +100,24 @@ def compute_expires_at_from_variant(variant_name: str) -> str | None:
     return None
 
 
+def get_luarmor_project_for_product(product_name: str, variant_name: str) -> str | None:
+    """
+    Return the Luarmor project ID this product should be whitelisted on,
+    based on product/variant name keywords. Returns None if no match.
+    """
+    combined = f"{product_name} {variant_name}".lower()
+    for route in LUARMOR_PROJECT_ROUTES:
+        pid = (route.get("project_id") or "").strip()
+        if not pid:
+            continue
+        if any(keyword in combined for keyword in route["keywords"]):
+            return pid
+    return None
+
+
 def should_whitelist_product(product_name: str, variant_name: str) -> bool:
     """Check if this product should be whitelisted on Luarmor."""
-    combined = f"{product_name} {variant_name}".lower()
-    return any(p in combined for p in WHITELIST_PRODUCTS)
+    return get_luarmor_project_for_product(product_name, variant_name) is not None
 
 # -----------------------------
 # MODAL
@@ -211,12 +240,15 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
             luarmor_key = None
             luarmor_expiry = None
             
-            if should_whitelist_product(product_name, variant_name):
+            target_project_id = get_luarmor_project_for_product(product_name, variant_name)
+            if target_project_id:
                 try:
+                    print(f"[WHITELIST] Product '{product_name}' -> Luarmor project {target_project_id}")
                     luarmor_result = await create_or_update_user(
                         discord_id=member.id,
                         plan_name=variant_name,
-                        note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
+                        note=f"{product_name} | {variant_name} | Invoice: {invoice_id}",
+                        project_id=target_project_id,
                     )
                     
                     if luarmor_result:
@@ -257,7 +289,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                             if not already_used.data:
                                 print(f"[REFERRAL] Adding {bonus_days} days to referrer {referrer_id}")
                                 
-                                referrer_result = await add_time_to_user(referrer_id, bonus_days)
+                                referrer_result = await add_time_to_user(referrer_id, bonus_days, project_id=target_project_id or None)
                                 
                                 bonus_applied = False
                                 if referrer_result:
@@ -273,7 +305,8 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                                         new_user = await create_or_update_user(
                                             discord_id=referrer_id,
                                             plan_name=f"Referral Bonus ({bonus_days} days)",
-                                            note=f"Referral bonus from {member.id} using code {ref_code}"
+                                            note=f"Referral bonus from {member.id} using code {ref_code}",
+                                            project_id=target_project_id or None,
                                         )
                                         if new_user:
                                             print(f"[REFERRAL] Created Luarmor account for referrer {referrer_id}")
