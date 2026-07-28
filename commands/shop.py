@@ -481,9 +481,9 @@ class Shop(commands.Cog):
             value="Premium access for Fix-It-Up",
             inline=False,
         )
-        embed.add_field(name="Week", value="**$5 USD**\n750 R$", inline=True)
-        embed.add_field(name="Month", value="**$10 USD**\n1,700 R$", inline=True)
-        embed.add_field(name="3 Months", value="**$20 USD**\n3,400 R$", inline=True)
+        embed.add_field(name="7 Days", value="**$5 USD**\n750 R$", inline=True)
+        embed.add_field(name="30 Days", value="**$10 USD**\n1,700 R$", inline=True)
+        embed.add_field(name="90 Days", value="**$20 USD**\n3,400 R$", inline=True)
 
         # --- Corsa Legends ---
         embed.add_field(
