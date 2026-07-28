@@ -31,6 +31,15 @@ ALL_STAFF_ROLE_IDS = ADMIN_STAFF_ROLE_IDS | SUPPORT_ROLE_IDS
 EMBED_COLOR = 0x489BF3
 BOT_LOGO_URL = "https://cdn.discordapp.com/attachments/1449252986911068273/1449511913317732485/ScriptUnionIcon.png"
 
+# Luarmor projects per script. Fix-It-Up uses the default LUARMOR_PROJECT_ID env var.
+LUARMOR_PROJECT_FIX_IT_UP = (os.getenv("LUARMOR_PROJECT_ID") or "").strip()
+LUARMOR_PROJECT_CORSA = "41aa3309f65c5f894bf7b5bdf46555bb"
+
+SCRIPT_PROJECTS = {
+    "fix_it_up": {"name": "Fix-It-Up", "project_id": LUARMOR_PROJECT_FIX_IT_UP},
+    "corsa": {"name": "Corsa Legends", "project_id": LUARMOR_PROJECT_CORSA},
+}
+
 supabase = get_supabase()
 
 
@@ -577,13 +586,38 @@ class Admin(commands.Cog):
     # -----------------------------
 
     @discord.app_commands.command(name="whitelist", description="Manually whitelist a user")
-    @discord.app_commands.describe(user="The user to whitelist", days="Number of days (0 for lifetime)")
-    async def whitelist(self, interaction: Interaction, user: discord.Member, days: int = 0):
+    @discord.app_commands.describe(
+        user="The user to whitelist",
+        script="Which script/project to whitelist them on",
+        days="Number of days (0 for lifetime)",
+    )
+    @discord.app_commands.choices(script=[
+        discord.app_commands.Choice(name="Fix-It-Up", value="fix_it_up"),
+        discord.app_commands.Choice(name="Corsa Legends", value="corsa"),
+    ])
+    async def whitelist(
+        self,
+        interaction: Interaction,
+        user: discord.Member,
+        script: discord.app_commands.Choice[str],
+        days: int = 0,
+    ):
         if not _is_admin_staff(interaction.user):
             await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
+
+        # Resolve the selected script/project
+        script_info = SCRIPT_PROJECTS.get(script.value)
+        if not script_info or not script_info.get("project_id"):
+            await interaction.followup.send(
+                f"The '{script.name}' project is not configured. Check the Luarmor project ID.",
+                ephemeral=True,
+            )
+            return
+        script_name = script_info["name"]
+        target_project_id = script_info["project_id"]
 
         # Check if user is blacklisted
         blacklisted = supabase.table("blacklist").select("*").eq(
@@ -596,15 +630,15 @@ class Admin(commands.Cog):
 
         # Determine product name based on days - use exact days for proper expiry
         if days == 0:
-            product_name = "Script Union - Fix it up (Lifetime)"
+            product_name = f"Script Union - {script_name} (Lifetime)"
             expiry_text = "Lifetime"
         else:
             # Always use exact days so Luarmor computes correct expiry
-            product_name = f"Manual Whitelist ({days} days)"
+            product_name = f"{script_name} - Manual Whitelist ({days} days)"
             expiry_text = f"{days} days"
 
-        # Create Luarmor key
-        luarmor_result = await create_or_update_user(user.id, product_name)
+        # Create Luarmor key on the correct project
+        luarmor_result = await create_or_update_user(user.id, product_name, project_id=target_project_id)
 
         if not luarmor_result or luarmor_result.get("error"):
             error_msg = luarmor_result.get("error") if luarmor_result else "Unknown error"
@@ -646,6 +680,7 @@ class Admin(commands.Cog):
 
         embed = discord.Embed(title="User Whitelisted", color=discord.Color.green())
         embed.add_field(name="User", value=f"{user.mention}", inline=True)
+        embed.add_field(name="Script", value=script_name, inline=True)
         embed.add_field(name="Duration", value=expiry_text, inline=True)
         embed.add_field(name="Expires", value=expiry_display, inline=True)
         embed.add_field(name="Whitelisted By", value=f"{interaction.user.mention}", inline=True)

@@ -461,7 +461,7 @@ class Shop(commands.Cog):
                 await msg.delete()
 
         embed = discord.Embed(
-            title="Fix-It-Up Premium Script — Shop",
+            title="Script Union — Shop",
             description=(
                 f"{SHOP_URL}\n\n"
                 "**How it works:**\n"
@@ -475,13 +475,29 @@ class Shop(commands.Cog):
             color=discord.Color(EMBED_COLOR),
         )
 
-        embed.add_field(name="Lifetime", value="**$25 USD**\n4,000 R$", inline=True)
-        embed.add_field(name="Month", value="**$10 USD**\n1,700 R$", inline=True)
+        # --- Fix-It-Up ---
+        embed.add_field(
+            name="__Fix-It-Up Script__",
+            value="Premium access for Fix-It-Up",
+            inline=False,
+        )
         embed.add_field(name="Week", value="**$5 USD**\n750 R$", inline=True)
+        embed.add_field(name="Month", value="**$10 USD**\n1,700 R$", inline=True)
+        embed.add_field(name="3 Months", value="**$20 USD**\n3,400 R$", inline=True)
+
+        # --- Corsa Legends ---
+        embed.add_field(
+            name="__Corsa Legends Script__",
+            value="Premium access for Corsa Legends",
+            inline=False,
+        )
+        embed.add_field(name="7 Days", value="**$7 USD**\n1,200 R$", inline=True)
+        embed.add_field(name="30 Days", value="**$20 USD**\n3,400 R$", inline=True)
+        embed.add_field(name="90 Days", value="**$35 USD**\n6,000 R$", inline=True)
 
         embed.set_author(name="Script Union Shop", icon_url=BOT_LOGO_URL)
         embed.set_thumbnail(url=BOT_LOGO_URL)
-        embed.set_footer(text="Fix-It-Up Script • Premium Access")
+        embed.set_footer(text="Script Union • Premium Access")
 
         await channel.send(embed=embed, view=ShopView(self.bot))
 
