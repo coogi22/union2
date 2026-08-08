@@ -70,10 +70,10 @@ def compute_expires_at(product_name: str | None, variant_name: str | None) -> st
         return (now + timedelta(days=7)).isoformat()
     if "month" in text:
         return (now + timedelta(days=30)).isoformat()
-    if "lifetime" in text:
-        return (now + timedelta(days=999)).isoformat()
+    if "90" in text and "day" in text:
+        return (now + timedelta(days=90)).isoformat()
 
-    return None  # Lifetime
+    return None
 
 def staff_only():
     async def predicate(interaction: discord.Interaction) -> bool:

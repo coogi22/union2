@@ -59,26 +59,14 @@ def _get_ticket_id_from_topic(topic: str | None) -> int | None:
 # Robux duration selection for new ticket flow
 class RobuxDurationSelect(ui.Select):
     def __init__(self):
-        options = [
-            discord.SelectOption(
-                label="Week - 750 Robux",
-                description="7 days of access",
+        options = []
+        for gamepass_id, info in GAMEPASSES.items():
+            options.append(discord.SelectOption(
+                label=f"{info['name']} - {info['price']:,} Robux"[:100],
+                description=f"{info['days']} days of access",
                 emoji="📅",
-                value="week"
-            ),
-            discord.SelectOption(
-                label="Month - 1,700 Robux",
-                description="30 days of access",
-                emoji="📆",
-                value="month"
-            ),
-            discord.SelectOption(
-                label="Lifetime - 4,000 Robux",
-                description="Permanent access forever",
-                emoji="♾️",
-                value="lifetime"
-            ),
-        ]
+                value=str(gamepass_id),
+            ))
         super().__init__(
             placeholder="Select duration...",
             min_values=1,
@@ -92,16 +80,9 @@ class RobuxDurationSelect(ui.Select):
             await interaction.response.send_message("Must be used in a server.", ephemeral=True)
             return
 
-        duration = self.values[0]
-        
-        # Get gamepass info based on duration
-        gamepass_map = {
-            "week": 1740966992,
-            "month": 1740773120,
-            "lifetime": 843404211
-        }
-        gamepass_id = gamepass_map.get(duration)
+        gamepass_id = int(self.values[0])
         gamepass_info = GAMEPASSES.get(gamepass_id, {})
+        duration = str(gamepass_info.get("days", "")) + "_days"
         gamepass_url = gamepass_info.get("url", "")
         gamepass_price = gamepass_info.get("price", 0)
         gamepass_name = gamepass_info.get("name", duration.capitalize())
