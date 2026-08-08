@@ -28,19 +28,19 @@ def _add_env_gamepass(env_name: str, name: str, product: str, price: int, days: 
 
 # Corsa Legends purchase passes.
 GAMEPASSES.update({
-    1791885761: {
+    1792027572: {
         "name": "Corsa Legends — 7 Days",
         "product": "corsa legends",
-        "price": 750,
+        "price": 1200,
         "days": 7,
-        "url": "https://www.roblox.com/game-pass/1791885761/random",
+        "url": "https://www.roblox.com/game-pass/1792027572/donate",
     },
-    1792027572: {
+    1791084207: {
         "name": "Corsa Legends — 30 Days",
         "product": "corsa legends",
-        "price": 1200,
+        "price": 3400,
         "days": 30,
-        "url": "https://www.roblox.com/game-pass/1792027572/donate",
+        "url": "https://www.roblox.com/game-pass/1791084207/donate",
     },
     1792009590: {
         "name": "Corsa Legends — 90 Days",
@@ -52,8 +52,8 @@ GAMEPASSES.update({
 })
 
 # Optional environment overrides/additions remain supported.
-_add_env_gamepass("CORSA_GAMEPASS_7_DAYS", "7 Days", "Corsa Legends", 750, 7)
-_add_env_gamepass("CORSA_GAMEPASS_30_DAYS", "30 Days", "Corsa Legends", 1200, 30)
+_add_env_gamepass("CORSA_GAMEPASS_7_DAYS", "7 Days", "Corsa Legends", 1200, 7)
+_add_env_gamepass("CORSA_GAMEPASS_30_DAYS", "30 Days", "Corsa Legends", 3400, 30)
 _add_env_gamepass("CORSA_GAMEPASS_90_DAYS", "90 Days", "Corsa Legends", 6000, 90)
 
 async def get_user_id_from_username(username: str) -> Optional[int]:

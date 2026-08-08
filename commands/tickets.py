@@ -294,7 +294,7 @@ class TicketReasonSelect(ui.Select):
                 value=(
                     "**Week** - 750 Robux (7 days)\n"
                     "**Month** - 1,700 Robux (30 days)\n"
-                    "**Lifetime** - 4,000 Robux (Forever)"
+                    "**90 Days** - 3,400 Robux"
                 ),
                 inline=False
             )
@@ -586,9 +586,12 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
             embed.add_field(
                 name="Gamepasses",
                 value=(
-                    "• [Week - 750 Robux](https://www.roblox.com/game-pass/1740966992/750)\n"
-                    "• [Month - 1,700 Robux](https://www.roblox.com/game-pass/1740773120/1700)\n"
-                    "• [Lifetime - 4,000 Robux](https://www.roblox.com/game-pass/843404211/4k)"
+                "• [Fix-It-Up — 7 Days - 750 Robux](https://www.roblox.com/game-pass/1740966992/750)\n"
+                "• [Fix-It-Up — 30 Days - 1,700 Robux](https://www.roblox.com/game-pass/1740773120/1700)\n"
+                "• [Fix-It-Up — 90 Days - 3,400 Robux](https://www.roblox.com/game-pass/843404211/3400)\n"
+                "• [Corsa Legends — 7 Days - 1,200 Robux](https://www.roblox.com/game-pass/1792027572/donate)\n"
+                "• [Corsa Legends — 30 Days - 3,400 Robux](https://www.roblox.com/game-pass/1791084207/donate)\n"
+                "• [Corsa Legends — 90 Days - 6,000 Robux](https://www.roblox.com/game-pass/1792009590/donate)"
                 ),
                 inline=False
             )
@@ -597,7 +600,7 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
                 value=(
                     "1. Screenshot proof of your purchase\n"
                     "2. Your Roblox username\n"
-                    "3. Which gamepass you purchased (Week/Month/Lifetime)"
+                    "3. Which gamepass you purchased (Fix-It-Up or Corsa Legends, plus duration)"
                 ),
                 inline=False
             )
