@@ -100,23 +100,25 @@ class RobuxDurationSelect(ui.Select):
         self.product_key = product_key
         product_name = PRODUCTS[product_key].lower()
         options = []
-        for gamepass_id, info in GAMEPASSES.items():
-            if info.get("product", "").lower() == product_name:
-                options.append(discord.SelectOption(
-                    label=f"{info['days']} Days — {info['price']:,} Robux"[:100],
-                    description=f"{PRODUCTS[product_key]} subscription",
-                    value=str(gamepass_id),
-                ))
+        # Junk Mechanics has no gamepasses yet, so always use its own 1/7/30-day prices.
+        if product_key != "junk_mechanics":
+            for gamepass_id, info in GAMEPASSES.items():
+                if info.get("product", "").lower() == product_name:
+                    options.append(discord.SelectOption(
+                        label=f"{info['days']} Days — {info['price']:,} Robux"[:100],
+                        description=f"{PRODUCTS[product_key]} subscription",
+                        value=str(gamepass_id),
+                    ))
         if not options:
             fallback_plans = {
-                "junk_mechanics": [(1, 300), (7, 750), (30, 1500)],
+                "junk_mechanics": [(1, 400), (7, 1200), (30, 2000)],
             }.get(product_key, [(7, 0), (30, 0), (90, 0)])
             options = [discord.SelectOption(
                 label=f"{days} Days — {price:,} Robux" if price else f"{days} Days — Gamepass coming soon",
                 description=f"{PRODUCTS[product_key]} subscription",
                 value=f"{product_key}:{days}:{price}",
             ) for days, price in fallback_plans]
-        super().__init__(placeholder="Select duration...", min_values=1, max_values=1, options=options, custom_id=f"robux_duration_{product_key}_v2")
+        super().__init__(placeholder="Select duration...", min_values=1, max_values=1, options=options, custom_id=f"robux_duration_{product_key}_v3")
 
     async def callback(self, interaction: Interaction):
         selected = self.values[0]
