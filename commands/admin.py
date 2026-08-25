@@ -7,7 +7,14 @@ import random
 import string
 
 from utils.supabase import get_supabase
-from utils.luarmor import get_user_info, add_time_to_user, delete_user_by_discord, create_or_update_user, compensate_all_users
+from utils.luarmor import (
+    get_user_info,
+    add_time_to_user,
+    delete_user_by_discord,
+    create_or_update_user,
+    compensate_all_users,
+    project_id_for_product,
+)
 from utils.roblox import verify_gamepass_purchase, get_gamepass_info
 
 # -----------------------------
@@ -105,17 +112,24 @@ class Admin(commands.Cog):
                         except:
                             member = None
 
-                    if member and role and role in member.roles:
-                        await member.remove_roles(role, reason="Subscription expired")
-
                     supabase.table("role_redeem").update({
                         "whitelisted": False
                     }).eq("id", entry["id"]).execute()
 
+                    # Expiring one product must not revoke another active product.
+                    active_subs = supabase.table("role_redeem").select(
+                        "id, product_name, expires_at"
+                    ).eq("discord_id", int(discord_id)).eq("whitelisted", True).execute()
+                    has_active_subscription = bool(active_subs.data)
+
+                    if member and role and role in member.roles and not has_active_subscription:
+                        await member.remove_roles(role, reason="All subscriptions expired")
+
                     try:
-                        await delete_user_by_discord(discord_id)
-                    except:
-                        pass
+                        project_id = project_id_for_product(entry.get("product_name"))
+                        await delete_user_by_discord(discord_id, project_id=project_id)
+                    except Exception as cleanup_error:
+                        print(f"[EXPIRY] Luarmor cleanup failed for {discord_id}: {cleanup_error}")
 
                     if log_channel:
                         embed = discord.Embed(
@@ -125,7 +139,7 @@ class Admin(commands.Cog):
                         embed.add_field(name="User", value=f"<@{discord_id}> (`{discord_id}`)", inline=False)
                         embed.add_field(name="Product", value=entry.get("product_name", "Unknown"), inline=True)
                         embed.add_field(name="Variant", value=entry.get("variant_name", "Unknown"), inline=True)
-                        embed.set_footer(text="Role and whitelist access removed")
+                        embed.set_footer(text="This product whitelist access was removed" + ("; other active subscriptions remain" if has_active_subscription else "; Premium role removed"))
                         await log_channel.send(embed=embed)
 
                     if member:
@@ -133,9 +147,9 @@ class Admin(commands.Cog):
                             dm_embed = discord.Embed(
                                 title="Your Subscription Has Expired",
                                 description=(
-                                    "Your Fix-It-Up Premium subscription has expired.\n\n"
-                                    "Your Premium role and whitelist access have been removed.\n\n"
-                                    "**Want to renew?**\n"
+                                    f"Your {entry.get('product_name', 'Premium')} subscription has expired.\n\n"
+                                    + ("Your other active subscription access remains enabled.\n\n" if has_active_subscription else "Your Premium role and whitelist access have been removed.\n\n")
+                                    + "**Want to renew?**\n"
                                     "Visit our shop to purchase a new subscription!"
                                 ),
                                 color=discord.Color.red()

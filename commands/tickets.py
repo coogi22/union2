@@ -56,62 +56,91 @@ def _get_ticket_id_from_topic(topic: str | None) -> int | None:
     return None
 
 
-# Robux duration selection for new ticket flow
-class RobuxDurationSelect(ui.Select):
+# Product is selected first; duration and proof are collected inside the ticket flow.
+PRODUCTS = {
+    "fix_it_up": "Fix-It-Up",
+    "corsa_legends": "Corsa Legends",
+    "junk_mechanics": "Junk Mechanics",
+}
+
+
+class RobuxProductSelect(ui.Select):
     def __init__(self):
-        options = []
-        for gamepass_id, info in GAMEPASSES.items():
-            options.append(discord.SelectOption(
-                label=f"{info['name']} - {info['price']:,} Robux"[:100],
-                description=f"{info['days']} days of access",
-                emoji="📅",
-                value=str(gamepass_id),
-            ))
         super().__init__(
-            placeholder="Select duration...",
+            placeholder="Select a game...",
             min_values=1,
             max_values=1,
-            options=options,
-            custom_id="robux_duration_select_v1"
+            options=[
+                discord.SelectOption(label=name, description=f"Robux purchase for {name}", value=key)
+                for key, name in PRODUCTS.items()
+            ],
+            custom_id="robux_product_select_v2",
         )
 
     async def callback(self, interaction: Interaction):
-        if not interaction.guild or not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message("Must be used in a server.", ephemeral=True)
-            return
+        await interaction.response.send_message(
+            embed=discord.Embed(
+                title=f"{PRODUCTS[self.values[0]]} — Select Duration",
+                description="Choose the subscription duration. Gamepass links will appear when configured.",
+                color=discord.Color(EMBED_COLOR),
+            ),
+            view=RobuxDurationView(self.values[0]),
+            ephemeral=True,
+        )
 
-        gamepass_id = int(self.values[0])
-        gamepass_info = GAMEPASSES.get(gamepass_id, {})
-        duration = str(gamepass_info.get("days", "")) + "_days"
-        gamepass_url = gamepass_info.get("url", "")
-        gamepass_price = gamepass_info.get("price", 0)
-        gamepass_name = gamepass_info.get("name", duration.capitalize())
-        
-        # Show the gamepass link and ask for username via modal
-        await interaction.response.send_modal(RobuxUsernameModal(duration, gamepass_url, gamepass_name, gamepass_price))
+
+class RobuxProductView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(RobuxProductSelect())
+
+
+class RobuxDurationSelect(ui.Select):
+    def __init__(self, product_key: str):
+        self.product_key = product_key
+        product_name = PRODUCTS[product_key].lower()
+        options = []
+        for gamepass_id, info in GAMEPASSES.items():
+            if info.get("product", "").lower() == product_name:
+                options.append(discord.SelectOption(
+                    label=f"{info['days']} Days — {info['price']:,} Robux"[:100],
+                    description=f"{PRODUCTS[product_key]} subscription",
+                    value=str(gamepass_id),
+                ))
+        if not options:
+            options = [discord.SelectOption(label=f"{days} Days", description=f"{PRODUCTS[product_key]} subscription", value=f"{product_key}:{days}") for days in (1, 7, 30)]
+        super().__init__(placeholder="Select duration...", min_values=1, max_values=1, options=options, custom_id=f"robux_duration_{product_key}_v2")
+
+    async def callback(self, interaction: Interaction):
+        selected = self.values[0]
+        info = GAMEPASSES.get(int(selected), {}) if selected.isdigit() else {}
+        days = info.get("days") or int(selected.rsplit(":", 1)[-1])
+        await interaction.response.send_modal(RobuxPurchaseModal(
+            product_name=PRODUCTS[self.product_key],
+            duration_days=days,
+            gamepass_url=info.get("url", "Gamepass link will be provided when available"),
+            gamepass_price=info.get("price", 0),
+        ))
 
 
 class RobuxDurationView(ui.View):
-    def __init__(self):
-        super().__init__(timeout=300)  # 5 minute timeout
-        self.add_item(RobuxDurationSelect())
+    def __init__(self, product_key: str):
+        super().__init__(timeout=300)
+        self.add_item(RobuxDurationSelect(product_key))
 
 
-class RobuxUsernameModal(ui.Modal):
-    def __init__(self, duration: str, gamepass_url: str, gamepass_name: str, gamepass_price: int):
-        super().__init__(title=f"Robux Payment - {gamepass_name}")
-        self.duration = duration
+class RobuxPurchaseModal(ui.Modal):
+    def __init__(self, product_name: str, duration_days: int, gamepass_url: str, gamepass_price: int):
+        super().__init__(title=f"{product_name} — Purchase Details")
+        self.product_name = product_name
+        self.duration_days = duration_days
         self.gamepass_url = gamepass_url
-        self.gamepass_name = gamepass_name
         self.gamepass_price = gamepass_price
-        
-        self.username = ui.TextInput(
-            label="Your Roblox Username",
-            placeholder="Enter your exact Roblox username",
-            required=True,
-            max_length=20
-        )
+
+        self.username = ui.TextInput(label="Your Roblox Username", placeholder="Enter your exact Roblox username", required=True, max_length=20)
+        self.proof = ui.TextInput(label="Proof of Purchase", placeholder="Paste an image/link or describe where the screenshot will be sent", style=discord.TextStyle.paragraph, required=True, max_length=1000)
         self.add_item(self.username)
+        self.add_item(self.proof)
 
     async def on_submit(self, interaction: Interaction):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -126,21 +155,26 @@ class RobuxUsernameModal(ui.Modal):
             interaction.user, 
             "robux",
             robux_info={
-                "duration": self.duration,
+                "duration": f"{self.duration_days} days",
+                "duration_days": self.duration_days,
+                "product_name": self.product_name,
                 "gamepass_url": self.gamepass_url,
-                "gamepass_name": self.gamepass_name,
+                "gamepass_name": f"{self.product_name} — {self.duration_days} Days",
                 "gamepass_price": self.gamepass_price,
-                "roblox_username": roblox_username
+                "roblox_username": roblox_username,
+                "proof": self.proof.value.strip(),
             }
         )
         
         if channel:
             await interaction.response.send_message(
                 f"Your ticket has been created: {channel.mention}\n\n"
-                f"**Duration:** {self.gamepass_name} ({self.gamepass_price:,} Robux)\n"
+                f"**Product:** {self.product_name}\n"
+                f"**Duration:** {self.duration_days} days ({self.gamepass_price:,} Robux if configured)\n"
                 f"**Gamepass Link:** {self.gamepass_url}\n"
-                f"**Roblox Username:** {roblox_username}\n\n"
-                f"Please purchase the gamepass and provide a screenshot in your ticket.",
+                f"**Roblox Username:** {roblox_username}\n"
+                f"**Proof:** {self.proof.value.strip()}\n\n"
+                f"Please attach the purchase screenshot in the ticket for staff verification.",
                 ephemeral=True
             )
         else:
@@ -283,22 +317,12 @@ class TicketReasonSelect(ui.Select):
         reason = self.values[0]
         
         if reason == "robux":
-            # Show duration selection first
             embed = discord.Embed(
-                title="Select Duration",
-                description="Which subscription duration would you like to purchase?",
+                title="Select a Game",
+                description="Choose which script you are interested in purchasing. You will select the duration and provide purchase proof next. Junk Mechanics pricing: $3/day, $7/week, $15/month.",
                 color=discord.Color(EMBED_COLOR)
             )
-            embed.add_field(
-                name="Available Options",
-                value=(
-                    "**Week** - 750 Robux (7 days)\n"
-                    "**Month** - 1,700 Robux (30 days)\n"
-                    "**90 Days** - 3,400 Robux"
-                ),
-                inline=False
-            )
-            await interaction.response.send_message(embed=embed, view=RobuxDurationView(), ephemeral=True)
+            await interaction.response.send_message(embed=embed, view=RobuxProductView(), ephemeral=True)
             return
         
         if reason == "support":
@@ -553,6 +577,11 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
                 color=discord.Color(EMBED_COLOR),
             )
             embed.add_field(
+                name="Product",
+                value=f"**{robux_info.get('product_name', 'Unknown')}**",
+                inline=True
+            )
+            embed.add_field(
                 name="Selected Plan",
                 value=f"**{robux_info.get('gamepass_name', 'Unknown')}** - {robux_info.get('gamepass_price', 0):,} Robux",
                 inline=True
@@ -564,7 +593,12 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
             )
             embed.add_field(
                 name="Gamepass Link",
-                value=f"[Click here to purchase]({robux_info.get('gamepass_url', '')})",
+                value=(f"[Click here to purchase]({robux_info.get('gamepass_url')})" if robux_info.get('gamepass_url', '').startswith('http') else robux_info.get('gamepass_url', 'Will be provided later')),
+                inline=False
+            )
+            embed.add_field(
+                name="Proof of Purchase",
+                value=robux_info.get("proof", "Attach your purchase screenshot here"),
                 inline=False
             )
             embed.add_field(

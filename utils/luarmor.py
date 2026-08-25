@@ -16,6 +16,14 @@ def _resolve_project_id(project_id: Optional[str] = None) -> str:
     """Return the given project_id, or fall back to the default Fix-It-Up project."""
     return (project_id or LUARMOR_PROJECT_ID or "").strip()
 
+
+def project_id_for_product(product_name: str | None) -> str:
+    """Resolve the Luarmor project for a product without cross-product cleanup."""
+    text = (product_name or "").lower()
+    if "corsa" in text:
+        return (os.getenv("LUARMOR_PROJECT_CORSA") or "41aa3309f65c5f894bf7b5bdf46555bb").strip()
+    return LUARMOR_PROJECT_ID
+
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds (exponential backoff)
 
@@ -203,12 +211,13 @@ async def update_user_expiry(user_key: str, auth_expire: Optional[int], project_
         return bool(data and data.get("success"))
 
 
-async def delete_user(user_key: str) -> bool:
-    """Delete a Luarmor key (removes user's whitelist access)."""
-    if not LUARMOR_API_KEY or not LUARMOR_PROJECT_ID:
+async def delete_user(user_key: str, project_id: Optional[str] = None) -> bool:
+    """Delete a Luarmor key from only the specified product project."""
+    project_id = _resolve_project_id(project_id)
+    if not LUARMOR_API_KEY or not project_id:
         return False
 
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
+    url = f"{BASE_URL}/projects/{project_id}/users"
     params = {"user_key": user_key}
 
     timeout = ClientTimeout(total=10)
@@ -306,17 +315,17 @@ async def add_time_to_user(discord_id: int, days: int, project_id: Optional[str]
     return None
 
 
-async def delete_user_by_discord(discord_id: int) -> bool:
-    """Delete a Luarmor user by their Discord ID."""
-    user = await get_user_by_discord(discord_id)
+async def delete_user_by_discord(discord_id: int, project_id: Optional[str] = None) -> bool:
+    """Delete a Luarmor user only within one product project."""
+    user = await get_user_by_discord(discord_id, project_id=project_id)
     if not user:
         return False
-    
+
     user_key = user.get("user_key")
     if not user_key:
         return False
-    
-    return await delete_user(user_key)
+
+    return await delete_user(user_key, project_id=project_id)
 
 
 async def get_all_users() -> list:
