@@ -108,18 +108,27 @@ class RobuxDurationSelect(ui.Select):
                     value=str(gamepass_id),
                 ))
         if not options:
-            options = [discord.SelectOption(label=f"{days} Days", description=f"{PRODUCTS[product_key]} subscription", value=f"{product_key}:{days}") for days in (1, 7, 30)]
+            fallback_plans = {
+                "junk_mechanics": [(1, 300), (7, 750), (30, 1500)],
+            }.get(product_key, [(7, 0), (30, 0), (90, 0)])
+            options = [discord.SelectOption(
+                label=f"{days} Days — {price:,} Robux" if price else f"{days} Days — Gamepass coming soon",
+                description=f"{PRODUCTS[product_key]} subscription",
+                value=f"{product_key}:{days}:{price}",
+            ) for days, price in fallback_plans]
         super().__init__(placeholder="Select duration...", min_values=1, max_values=1, options=options, custom_id=f"robux_duration_{product_key}_v2")
 
     async def callback(self, interaction: Interaction):
         selected = self.values[0]
         info = GAMEPASSES.get(int(selected), {}) if selected.isdigit() else {}
-        days = info.get("days") or int(selected.rsplit(":", 1)[-1])
+        parts = selected.split(":")
+        days = info.get("days") or int(parts[1])
+        price = info.get("price", int(parts[2]) if len(parts) > 2 else 0)
         await interaction.response.send_modal(RobuxPurchaseModal(
             product_name=PRODUCTS[self.product_key],
             duration_days=days,
             gamepass_url=info.get("url", "Gamepass link will be provided when available"),
-            gamepass_price=info.get("price", 0),
+            gamepass_price=price,
         ))
 
 
@@ -138,9 +147,7 @@ class RobuxPurchaseModal(ui.Modal):
         self.gamepass_price = gamepass_price
 
         self.username = ui.TextInput(label="Your Roblox Username", placeholder="Enter your exact Roblox username", required=True, max_length=20)
-        self.proof = ui.TextInput(label="Proof of Purchase", placeholder="Paste an image/link or describe where the screenshot will be sent", style=discord.TextStyle.paragraph, required=True, max_length=1000)
         self.add_item(self.username)
-        self.add_item(self.proof)
 
     async def on_submit(self, interaction: Interaction):
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -162,7 +169,6 @@ class RobuxPurchaseModal(ui.Modal):
                 "gamepass_name": f"{self.product_name} — {self.duration_days} Days",
                 "gamepass_price": self.gamepass_price,
                 "roblox_username": roblox_username,
-                "proof": self.proof.value.strip(),
             }
         )
         
@@ -173,8 +179,7 @@ class RobuxPurchaseModal(ui.Modal):
                 f"**Duration:** {self.duration_days} days ({self.gamepass_price:,} Robux if configured)\n"
                 f"**Gamepass Link:** {self.gamepass_url}\n"
                 f"**Roblox Username:** {roblox_username}\n"
-                f"**Proof:** {self.proof.value.strip()}\n\n"
-                f"Please attach the purchase screenshot in the ticket for staff verification.",
+                f"Please purchase the gamepass and send your proof of purchase in this ticket after payment.",
                 ephemeral=True
             )
         else:
@@ -319,7 +324,7 @@ class TicketReasonSelect(ui.Select):
         if reason == "robux":
             embed = discord.Embed(
                 title="Select a Game",
-                description="Choose which script you are interested in purchasing. You will select the duration and provide purchase proof next. Junk Mechanics pricing: $3/day, $7/week, $15/month.",
+                description="Choose which script you are interested in purchasing with Robux. You will select the duration next, then provide proof of purchase inside the ticket after payment.",
                 color=discord.Color(EMBED_COLOR)
             )
             await interaction.response.send_message(embed=embed, view=RobuxProductView(), ephemeral=True)

@@ -485,6 +485,16 @@ class Shop(commands.Cog):
         embed.add_field(name="30 Days", value="**$10 USD**\n1,700 R$", inline=True)
         embed.add_field(name="90 Days", value="**$20 USD**\n3,400 R$", inline=True)
 
+        # --- Junk Mechanics ---
+        embed.add_field(
+            name="__Junk Mechanics Script__",
+            value="Premium access for Junk Mechanics",
+            inline=False,
+        )
+        embed.add_field(name="1 Day", value="**$3 USD**\n300 R$", inline=True)
+        embed.add_field(name="7 Days", value="**$7 USD**\n750 R$", inline=True)
+        embed.add_field(name="30 Days", value="**$15 USD**\n1,500 R$", inline=True)
+
         # --- Corsa Legends ---
         embed.add_field(
             name="__Corsa Legends Script__",
