@@ -81,7 +81,7 @@ class RobuxProductSelect(ui.Select):
         await interaction.response.send_message(
             embed=discord.Embed(
                 title=f"{PRODUCTS[self.values[0]]} — Select Duration",
-                description="Choose the subscription duration. Gamepass links will appear when configured.",
+                description="Choose the subscription duration and purchase the selected gamepass.",
                 color=discord.Color(EMBED_COLOR),
             ),
             view=RobuxDurationView(self.values[0]),
@@ -100,15 +100,13 @@ class RobuxDurationSelect(ui.Select):
         self.product_key = product_key
         product_name = PRODUCTS[product_key].lower()
         options = []
-        # Junk Mechanics has no gamepasses yet, so always use its own 1/7/30-day prices.
-        if product_key != "junk_mechanics":
-            for gamepass_id, info in GAMEPASSES.items():
-                if info.get("product", "").lower() == product_name:
-                    options.append(discord.SelectOption(
-                        label=f"{info['days']} Days — {info['price']:,} Robux"[:100],
-                        description=f"{PRODUCTS[product_key]} subscription",
-                        value=str(gamepass_id),
-                    ))
+        for gamepass_id, info in GAMEPASSES.items():
+            if info.get("product", "").lower() == product_name:
+                options.append(discord.SelectOption(
+                    label=f"{info['days']} Days — {info['price']:,} Robux"[:100],
+                    description=f"{PRODUCTS[product_key]} subscription",
+                    value=str(gamepass_id),
+                ))
         if not options:
             fallback_plans = {
                 "junk_mechanics": [(1, 400), (7, 1200), (30, 2000)],
@@ -632,7 +630,10 @@ async def create_or_get_ticket_channel(guild: discord.Guild, member: discord.Mem
                 "• [Fix-It-Up — 90 Days - 3,400 Robux](https://www.roblox.com/game-pass/843404211/3400)\n"
                 "• [Corsa Legends — 7 Days - 1,200 Robux](https://www.roblox.com/game-pass/1792027572/donate)\n"
                 "• [Corsa Legends — 30 Days - 3,400 Robux](https://www.roblox.com/game-pass/1791084207/donate)\n"
-                "• [Corsa Legends — 90 Days - 6,000 Robux](https://www.roblox.com/game-pass/1792009590/donate)"
+                "• [Corsa Legends — 90 Days - 6,000 Robux](https://www.roblox.com/game-pass/1792009590/donate)\n"
+                "• [Junk Mechanics — 1 Day - 400 Robux](https://www.roblox.com/game-pass/1962306481/400)\n"
+                "• [Junk Mechanics — 7 Days - 1,200 Robux](https://www.roblox.com/game-pass/1963224497/1200)\n"
+                "• [Junk Mechanics — 30 Days - 2,000 Robux](https://www.roblox.com/game-pass/1961952488/2000)"
                 ),
                 inline=False
             )

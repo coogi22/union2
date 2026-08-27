@@ -26,8 +26,29 @@ def _add_env_gamepass(env_name: str, name: str, product: str, price: int, days: 
     }
 
 
-# Corsa Legends purchase passes.
+# Junk Mechanics and Corsa Legends purchase passes.
 GAMEPASSES.update({
+    1962306481: {
+        "name": "Junk Mechanics — 1 Day",
+        "product": "junk mechanics",
+        "price": 400,
+        "days": 1,
+        "url": "https://www.roblox.com/game-pass/1962306481/400",
+    },
+    1963224497: {
+        "name": "Junk Mechanics — 7 Days",
+        "product": "junk mechanics",
+        "price": 1200,
+        "days": 7,
+        "url": "https://www.roblox.com/game-pass/1963224497/1200",
+    },
+    1961952488: {
+        "name": "Junk Mechanics — 30 Days",
+        "product": "junk mechanics",
+        "price": 2000,
+        "days": 30,
+        "url": "https://www.roblox.com/game-pass/1961952488/2000",
+    },
     1792027572: {
         "name": "Corsa Legends — 7 Days",
         "product": "corsa legends",
