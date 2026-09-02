@@ -98,12 +98,14 @@ class RobuxProductView(ui.View):
 class RobuxDurationSelect(ui.Select):
     def __init__(self, product_key: str):
         self.product_key = product_key
-        product_name = PRODUCTS[product_key].lower()
+        product_name = PRODUCTS[product_key].lower().replace("-", " ").replace("_", " ")
         options = []
         for gamepass_id, info in GAMEPASSES.items():
-            if info.get("product", "").lower() == product_name:
+            configured_product = info.get("product", "").lower().replace("-", " ").replace("_", " ")
+            if configured_product == product_name:
+                day_label = "Day" if info['days'] == 1 else "Days"
                 options.append(discord.SelectOption(
-                    label=f"{info['days']} Days — {info['price']:,} Robux"[:100],
+                    label=f"{info['days']} {day_label} — {info['price']:,} Robux"[:100],
                     description=f"{PRODUCTS[product_key]} subscription",
                     value=str(gamepass_id),
                 ))
@@ -127,7 +129,7 @@ class RobuxDurationSelect(ui.Select):
         await interaction.response.send_modal(RobuxPurchaseModal(
             product_name=PRODUCTS[self.product_key],
             duration_days=days,
-            gamepass_url=info.get("url", "Gamepass link will be provided when available"),
+            gamepass_url=info.get("url") or "Gamepass link will be provided when available",
             gamepass_price=price,
         ))
 
@@ -162,11 +164,11 @@ class RobuxPurchaseModal(ui.Modal):
             interaction.user, 
             "robux",
             robux_info={
-                "duration": f"{self.duration_days} days",
+                "duration": f"{self.duration_days} day" + ("s" if self.duration_days != 1 else ""),
                 "duration_days": self.duration_days,
                 "product_name": self.product_name,
                 "gamepass_url": self.gamepass_url,
-                "gamepass_name": f"{self.product_name} — {self.duration_days} Days",
+                "gamepass_name": f"{self.product_name} — {self.duration_days} Day" + ("s" if self.duration_days != 1 else ""),
                 "gamepass_price": self.gamepass_price,
                 "roblox_username": roblox_username,
             }

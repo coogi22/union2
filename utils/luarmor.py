@@ -22,6 +22,8 @@ def project_id_for_product(product_name: str | None) -> str:
     text = (product_name or "").lower()
     if "corsa" in text:
         return (os.getenv("LUARMOR_PROJECT_CORSA") or "41aa3309f65c5f894bf7b5bdf46555bb").strip()
+    if "junk" in text:
+        return (os.getenv("LUARMOR_PROJECT_JUNK") or "2f8010d2d7e22e4356c86c117ced48bd").strip()
     return LUARMOR_PROJECT_ID
 
 MAX_RETRIES = 3
@@ -261,8 +263,10 @@ def compute_expiry_timestamp(product_name: str | None, variant_name: str | None)
     if day_match:
         days = int(day_match.group(1))
         return now + (days * 86400)
-    
-    return -1  # Default to lifetime
+
+    # Unknown plan: never default to lifetime. Grant the shortest plan and warn.
+    print(f"[LUARMOR] ⚠️ Unknown plan '{text.strip()}' — defaulting to 1 day, verify manually")
+    return now + 86400
 
 
 async def get_user_info(discord_id: int, project_id: Optional[str] = None) -> Optional[Dict[str, Any]]:

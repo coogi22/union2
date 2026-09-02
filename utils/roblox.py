@@ -3,12 +3,11 @@ import aiohttp
 from typing import Optional, Tuple
 
 # Gamepass IDs and prices (in Robux, before fees).
-# Fix-It-Up keeps its existing 7/30-day passes; the former lifetime pass is now 90 days.
-# Corsa Legends IDs can be supplied through CORSA_GAMEPASS_* environment variables.
+# Products: Fix-It-Up (7/30/90 days), Corsa Legends (7/30/90 days), Junk Mechanics (1/7/30 days).
 GAMEPASSES = {
     1740966992: {"name": "Fix-It-Up — 7 Days", "product": "fix it up", "price": 750, "days": 7, "url": "https://www.roblox.com/game-pass/1740966992/750"},
     1740773120: {"name": "Fix-It-Up — 30 Days", "product": "fix it up", "price": 1700, "days": 30, "url": "https://www.roblox.com/game-pass/1740773120/1700"},
-    843404211: {"name": "Fix-It-Up — 90 Days", "product": "fix it up", "price": 3400, "days": 90, "url": "https://www.roblox.com/game-pass/843404211/3400"},
+    843404211: {"name": "Fix-It-Up — 90 Days", "product": "fix it up", "price": 3400, "days": 90, "url": "https://www.roblox.com/game-pass/843404211/4k"},
 }
 
 

@@ -5,10 +5,11 @@ from discord import app_commands
 import aiohttp
 from aiohttp import ClientTimeout
 from datetime import datetime, timezone, timedelta
+import re
 import traceback
 
 from utils.supabase import get_supabase
-from utils.luarmor import create_luarmor_key, get_user_by_discord, compute_expiry_timestamp
+from utils.luarmor import create_or_update_user, project_id_for_product
 
 # -----------------------------
 # CONFIG
@@ -70,8 +71,12 @@ def compute_expires_at(product_name: str | None, variant_name: str | None) -> st
         return (now + timedelta(days=7)).isoformat()
     if "month" in text:
         return (now + timedelta(days=30)).isoformat()
-    if "90" in text and "day" in text:
-        return (now + timedelta(days=90)).isoformat()
+
+    day_match = re.search(r'(\d+)\s*days?', text)
+    if day_match:
+        return (now + timedelta(days=int(day_match.group(1)))).isoformat()
+    if "day" in text:
+        return (now + timedelta(days=1)).isoformat()
 
     return None
 
@@ -127,24 +132,18 @@ class InvoiceRedeem(commands.Cog):
             if role and role not in user.roles:
                 await user.add_roles(role, reason=f"SellAuth redeem {invoice_id}")
 
+            # Create or extend the key in the product's own Luarmor project.
+            # Stacks time if the user already has an active key for this product.
             luarmor_key = None
-            luarmor_expiry = compute_expiry_timestamp(product_name, variant_name)
-            
-            # Check if user already has a Luarmor key
-            existing_luarmor = await get_user_by_discord(str(user.id))
-            
-            if existing_luarmor:
-                # User already has a key, store it
-                luarmor_key = existing_luarmor.get("user_key")
-            else:
-                # Create new Luarmor key with Discord ID and expiry
-                result = await create_luarmor_key(
-                    discord_id=str(user.id),
-                    auth_expire=luarmor_expiry,
-                    note=f"{product_name} | {variant_name} | Invoice: {invoice_id}"
-                )
-                if result:
-                    luarmor_key = result.get("user_key")
+            target_project_id = project_id_for_product(product_name)
+            result = await create_or_update_user(
+                user.id,
+                f"{product_name} {variant_name}",
+                note=f"{product_name} | {variant_name} | Invoice: {invoice_id}",
+                project_id=target_project_id,
+            )
+            if result:
+                luarmor_key = result.get("user_key")
 
             # Save redemption
             supabase.table("role_redeem").insert({
@@ -179,7 +178,7 @@ class InvoiceRedeem(commands.Cog):
                     ts = int(datetime.fromisoformat(expires_at.replace("Z", "+00:00")).timestamp())
                     embed.add_field(name="Expires", value=f"<t:{ts}:F>", inline=False)
                 else:
-                    embed.add_field(name="Expires", value="Lifetime", inline=False)
+                    embed.add_field(name="Expires", value="⚠️ Unknown duration — verify manually", inline=False)
 
                 await log.send(embed=embed)
 

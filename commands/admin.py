@@ -235,15 +235,20 @@ class Admin(commands.Cog):
     # -----------------------------
 
     @discord.app_commands.command(name="addtime", description="Add days to a user's whitelist")
-    @discord.app_commands.describe(user="The user to add time to", days="Number of days to add")
-    async def addtime(self, interaction: Interaction, user: discord.Member, days: int):
+    @discord.app_commands.describe(user="The user to add time to", days="Number of days to add", product="Which script's whitelist to extend")
+    @discord.app_commands.choices(product=[
+        discord.app_commands.Choice(name="Fix-It-Up", value="fix it up"),
+        discord.app_commands.Choice(name="Corsa Legends", value="corsa legends"),
+        discord.app_commands.Choice(name="Junk Mechanics", value="junk mechanics"),
+    ])
+    async def addtime(self, interaction: Interaction, user: discord.Member, days: int, product: str = "fix it up"):
         if not _is_admin_staff(interaction.user):
             await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
             return
         
         await interaction.response.defer(ephemeral=True)
 
-        result = await add_time_to_user(user.id, days)
+        result = await add_time_to_user(user.id, days, project_id=project_id_for_product(product))
 
         if not result:
             await interaction.followup.send(f"{user.mention} doesn't have a whitelist key.", ephemeral=True)

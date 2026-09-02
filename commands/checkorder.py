@@ -102,7 +102,7 @@ class CopyOrderView(discord.ui.View):
 
     @discord.ui.button(label="Copy Order ID", style=discord.ButtonStyle.primary)
     async def copy_order_id(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(f"\`\`\`{self.invoice_id}\`\`\`", ephemeral=True)
+        await interaction.response.send_message(f"```{self.invoice_id}```", ephemeral=True)
 
 def staff_only():
     async def predicate(interaction: discord.Interaction) -> bool:
@@ -239,8 +239,7 @@ class CheckOrder(commands.Cog):
                 exp_display = f"<t:{exp_ts}:F>" if exp_ts else f"`{expires_at}`"
                 embed.add_field(name="Expires", value=exp_display, inline=False)
             else:
-                # If you want lifetime shown only when redeemed, keep this:
-                embed.add_field(name="Expires", value="Lifetime / None", inline=False)
+                embed.add_field(name="Expires", value="No expiry set", inline=False)
 
         embed.set_footer(text="Script Union • Order Verification")
 
