@@ -1,4 +1,5 @@
 import os
+import re
 import discord
 from discord.ext import commands, tasks
 from discord import ui, Interaction
@@ -41,6 +42,10 @@ LUARMOR_PROJECT_ROUTES = [
     {
         "keywords": ["corsa legends", "corsa-legends", "corsalegends", "corsa"],
         "project_id": "41aa3309f65c5f894bf7b5bdf46555bb",  # Corsa Legends project
+    },
+    {
+        "keywords": ["junk mechanics", "junk-mechanics", "junkmechanics", "junk"],
+        "project_id": (os.getenv("LUARMOR_PROJECT_JUNK") or "2f8010d2d7e22e4356c86c117ced48bd").strip(),
     },
 ]
 
@@ -96,6 +101,12 @@ def compute_expires_at_from_variant(variant_name: str) -> str | None:
         return (now + timedelta(days=30)).isoformat()
     if "year" in v:
         return (now + timedelta(days=365)).isoformat()
+
+    day_match = re.search(r'(\d+)\s*days?', v)
+    if day_match:
+        return (now + timedelta(days=int(day_match.group(1)))).isoformat()
+    if "day" in v:
+        return (now + timedelta(days=1)).isoformat()
 
     return None
 

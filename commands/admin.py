@@ -66,6 +66,35 @@ def _generate_referral_code() -> str:
     return f"REF-{code}"
 
 
+def _product_keyword(text: str | None) -> str:
+    """Normalize a product name to its script keyword for matching."""
+    t = (text or "").lower()
+    if "corsa" in t:
+        return "corsa"
+    if "junk" in t:
+        return "junk"
+    return "fix"
+
+
+def _sync_role_redeem_expiry(discord_id: int, product: str, new_expire_ts: int) -> None:
+    """Keep Supabase expires_at in sync with Luarmor after adding time.
+    Without this, the expiry loop still fires at the OLD date and revokes
+    the user's role and key even though Luarmor has more time."""
+    keyword = _product_keyword(product)
+    new_iso = datetime.fromtimestamp(new_expire_ts, tz=timezone.utc).isoformat()
+    try:
+        rows = supabase.table("role_redeem").select("id, product_name").eq(
+            "discord_id", int(discord_id)
+        ).eq("whitelisted", True).execute()
+        for row in rows.data or []:
+            if _product_keyword(row.get("product_name")) == keyword:
+                supabase.table("role_redeem").update(
+                    {"expires_at": new_iso}
+                ).eq("id", row["id"]).execute()
+    except Exception as e:
+        print(f"[ADDTIME] Failed to sync Supabase expiry for {discord_id}: {e}")
+
+
 class Admin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -258,6 +287,9 @@ class Admin(commands.Cog):
             await interaction.followup.send(f"{user.mention} has a lifetime key - no expiry to extend.", ephemeral=True)
             return
 
+        if result.get("new_expire"):
+            _sync_role_redeem_expiry(user.id, product, result["new_expire"])
+
         embed = discord.Embed(title="Time Added", color=discord.Color.green())
         embed.add_field(name="User", value=f"{user.mention}", inline=True)
         embed.add_field(name="Days Added", value=f"**{days}** days", inline=True)
@@ -309,6 +341,9 @@ class Admin(commands.Cog):
             return
 
         result = await add_time_to_user(referrer_id, bonus_days)
+
+        if result and result.get("new_expire"):
+            _sync_role_redeem_expiry(referrer_id, "fix it up", result["new_expire"])
 
         supabase.table("referral_uses").insert({
             "referral_code": code.upper(),
@@ -839,6 +874,28 @@ class Admin(commands.Cog):
 
         # Run the compensation
         result = await compensate_all_users(hours)
+
+        # Sync Supabase so the expiry loop doesn't revoke at the old dates.
+        # compensate_all_users only touches the default (Fix-It-Up) project.
+        try:
+            rows = supabase.table("role_redeem").select(
+                "id, product_name, expires_at"
+            ).eq("whitelisted", True).execute()
+            for row in rows.data or []:
+                if _product_keyword(row.get("product_name")) != "fix":
+                    continue
+                expires_at = row.get("expires_at")
+                if not expires_at:
+                    continue
+                try:
+                    current = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                    supabase.table("role_redeem").update({
+                        "expires_at": (current + timedelta(hours=hours)).isoformat()
+                    }).eq("id", row["id"]).execute()
+                except Exception as row_error:
+                    print(f"[COMPENSATE] Failed to sync row {row.get('id')}: {row_error}")
+        except Exception as e:
+            print(f"[COMPENSATE] Supabase sync failed: {e}")
 
         embed = discord.Embed(
             title="Compensation Complete",
