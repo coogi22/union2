@@ -41,10 +41,12 @@ BOT_LOGO_URL = "https://cdn.discordapp.com/attachments/1449252986911068273/14495
 # Luarmor projects per script. Fix-It-Up uses the default LUARMOR_PROJECT_ID env var.
 LUARMOR_PROJECT_FIX_IT_UP = (os.getenv("LUARMOR_PROJECT_ID") or "").strip()
 LUARMOR_PROJECT_CORSA = "41aa3309f65c5f894bf7b5bdf46555bb"
+LUARMOR_PROJECT_JUNK = (os.getenv("LUARMOR_PROJECT_JUNK") or "2f8010d2d7e22e4356c86c117ced48bd").strip()
 
 SCRIPT_PROJECTS = {
     "fix_it_up": {"name": "Fix-It-Up", "project_id": LUARMOR_PROJECT_FIX_IT_UP},
     "corsa": {"name": "Corsa Legends", "project_id": LUARMOR_PROJECT_CORSA},
+    "junk": {"name": "Junk Mechanics", "project_id": LUARMOR_PROJECT_JUNK},
 }
 
 supabase = get_supabase()
@@ -384,9 +386,15 @@ class Admin(commands.Cog):
         gamepass="The gamepass they purchased"
     )
     @discord.app_commands.choices(gamepass=[
-        discord.app_commands.Choice(name="Week (700 Robux)", value=109857815),
-        discord.app_commands.Choice(name="Month (1700 Robux)", value=129890883),
-        discord.app_commands.Choice(name="Lifetime (4000 Robux)", value=125899946),
+        discord.app_commands.Choice(name="Fix-It-Up — 7 Days (750 R$)", value=1740966992),
+        discord.app_commands.Choice(name="Fix-It-Up — 30 Days (1,700 R$)", value=1740773120),
+        discord.app_commands.Choice(name="Fix-It-Up — 90 Days (3,400 R$)", value=843404211),
+        discord.app_commands.Choice(name="Corsa Legends — 7 Days (1,200 R$)", value=1792027572),
+        discord.app_commands.Choice(name="Corsa Legends — 30 Days (3,400 R$)", value=1791084207),
+        discord.app_commands.Choice(name="Corsa Legends — 90 Days (6,000 R$)", value=1792009590),
+        discord.app_commands.Choice(name="Junk Mechanics — 1 Day (400 R$)", value=1962306481),
+        discord.app_commands.Choice(name="Junk Mechanics — 7 Days (1,200 R$)", value=1963224497),
+        discord.app_commands.Choice(name="Junk Mechanics — 30 Days (2,000 R$)", value=1961952488),
     ])
     async def verifygamepass(self, interaction: Interaction, user: discord.Member, roblox_username: str, gamepass: int):
         if not _is_admin_staff(interaction.user):
@@ -431,9 +439,10 @@ class Admin(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
-        # Whitelist on Luarmor
-        product_name = f"Script Union - Fix it up ({gamepass_info['name']})"
-        luarmor_result = await create_or_update_user(user.id, product_name)
+        # Whitelist on Luarmor in the gamepass's own product project
+        product_name = f"{gamepass_info['name']} ({gamepass_info['days']} days)"
+        target_project_id = project_id_for_product(gamepass_info["product"])
+        luarmor_result = await create_or_update_user(user.id, product_name, project_id=target_project_id)
 
         if not luarmor_result or luarmor_result.get("error"):
             embed = discord.Embed(
@@ -453,6 +462,22 @@ class Admin(commands.Cog):
             "product_type": gamepass_info["name"],
             "verified_by": int(interaction.user.id)
         }).execute()
+
+        # Track in role_redeem so the expiry loop can revoke on time
+        try:
+            expires_iso = (datetime.now(timezone.utc) + timedelta(days=gamepass_info["days"])).isoformat()
+            supabase.table("role_redeem").insert({
+                "invoice_id": f"gamepass-{gamepass}-{user.id}-{int(datetime.now(timezone.utc).timestamp())}",
+                "discord_id": int(user.id),
+                "product_name": gamepass_info["name"],
+                "variant_name": f"{gamepass_info['days']} days",
+                "redeemed_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": expires_iso,
+                "whitelisted": True,
+                "luarmor_key": luarmor_result.get("user_key", "")
+            }).execute()
+        except Exception as e:
+            print(f"[VERIFYGAMEPASS DB ERROR] {e}")
 
         # Give role
         role = interaction.guild.get_role(ACCESS_ROLE_ID)
@@ -648,6 +673,7 @@ class Admin(commands.Cog):
     @discord.app_commands.choices(script=[
         discord.app_commands.Choice(name="Fix-It-Up", value="fix_it_up"),
         discord.app_commands.Choice(name="Corsa Legends", value="corsa"),
+        discord.app_commands.Choice(name="Junk Mechanics", value="junk"),
     ])
     async def whitelist(
         self,
