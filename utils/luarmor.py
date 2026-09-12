@@ -250,6 +250,13 @@ def compute_expiry_timestamp(product_name: str | None, variant_name: str | None)
     text = f"{product_name or ''} {variant_name or ''}".lower()
     now = int(datetime.now(timezone.utc).timestamp())
 
+    # Explicit "N days" ALWAYS wins — stale SellAuth variant names like
+    # "Lifetime" must never override a real duration in the product name.
+    day_match = re.search(r'(\d+)\s*days?', text)
+    if day_match:
+        days = int(day_match.group(1))
+        return now + (days * 86400)
+
     if "week" in text:
         return now + (7 * 86400)
     if "month" in text:
@@ -257,12 +264,7 @@ def compute_expiry_timestamp(product_name: str | None, variant_name: str | None)
     if "year" in text:
         return now + (365 * 86400)
     if "lifetime" in text or "life" in text:
-        return -1  # Luarmor: -1 = never expires
-    
-    day_match = re.search(r'(\d+)\s*days?', text)
-    if day_match:
-        days = int(day_match.group(1))
-        return now + (days * 86400)
+        return -1  # Luarmor: -1 = never expires (manual /whitelist days=0 only)
 
     # Unknown plan: never default to lifetime. Grant the shortest plan and warn.
     print(f"[LUARMOR] ⚠️ Unknown plan '{text.strip()}' — defaulting to 1 day, verify manually")

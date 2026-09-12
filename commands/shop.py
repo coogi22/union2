@@ -90,10 +90,15 @@ def extract_product_and_variant(invoice: dict) -> tuple[str, str]:
     return "Unknown", "Standard"
 
 
-def compute_expires_at_from_variant(variant_name: str) -> str | None:
-    """Returns ISO string or None for lifetime."""
-    v = (variant_name or "").lower()
+def compute_expires_at_from_variant(variant_name: str, product_name: str = "") -> str | None:
+    """Returns ISO string, or None if no duration found in product or variant."""
+    v = f"{product_name or ''} {variant_name or ''}".lower()
     now = datetime.now(timezone.utc)
+
+    # Explicit "N days" always wins over stale keywords like "Lifetime"
+    day_match = re.search(r'(\d+)\s*days?', v)
+    if day_match:
+        return (now + timedelta(days=int(day_match.group(1)))).isoformat()
 
     if "week" in v:
         return (now + timedelta(days=7)).isoformat()
@@ -101,10 +106,6 @@ def compute_expires_at_from_variant(variant_name: str) -> str | None:
         return (now + timedelta(days=30)).isoformat()
     if "year" in v:
         return (now + timedelta(days=365)).isoformat()
-
-    day_match = re.search(r'(\d+)\s*days?', v)
-    if day_match:
-        return (now + timedelta(days=int(day_match.group(1)))).isoformat()
     if "day" in v:
         return (now + timedelta(days=1)).isoformat()
 
@@ -231,7 +232,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                     print(f"[DEBUG] Could not parse order date: {e}")
 
             product_name, variant_name = extract_product_and_variant(invoice)
-            expires_at = compute_expires_at_from_variant(variant_name)
+            expires_at = compute_expires_at_from_variant(variant_name, product_name)
 
             role = guild.get_role(ACCESS_ROLE_ID)
             if not role:
@@ -257,7 +258,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                     print(f"[WHITELIST] Product '{product_name}' -> Luarmor project {target_project_id}")
                     luarmor_result = await create_or_update_user(
                         discord_id=member.id,
-                        plan_name=variant_name,
+                        plan_name=f"{product_name} {variant_name}",
                         note=f"{product_name} | {variant_name} | Invoice: {invoice_id}",
                         project_id=target_project_id,
                     )
@@ -396,7 +397,7 @@ class RedeemOrderModal(ui.Modal, title="Redeem Order ID"):
                     except Exception:
                         embed.add_field(name="Expires", value=f"`{actual_expires_at}`", inline=False)
                 else:
-                    embed.add_field(name="Expires", value="Lifetime", inline=False)
+                    embed.add_field(name="Expires", value="⚠️ No duration found — verify manually", inline=False)
                 
                 if ref_code:
                     embed.add_field(name="Referral Code Used", value=f"`{ref_code}`", inline=False)
